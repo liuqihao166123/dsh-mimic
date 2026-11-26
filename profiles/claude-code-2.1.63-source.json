@@ -1,0 +1,94 @@
+{
+  "id": "claude-code/2.1.63-source",
+  "client": "claude-code",
+  "version": "2.1.63",
+  "sourceOfTruth": "src/core/profiles.ts",
+  "defaultForClient": true,
+  "evidence": {
+    "kind": "public-source",
+    "captureVerified": false,
+    "sourceExactForSelectedBranch": true,
+    "fullFingerprintVerified": false,
+    "artifact": {
+      "url": "https://registry.npmjs.org/@anthropic-ai/claude-code/-/claude-code-2.1.63.tgz",
+      "registry": "https://registry.npmjs.org/@anthropic-ai%2Fclaude-code/2.1.63",
+      "npmShasum": "fc4103d9e1041365c0a081273ea9af1ba53f979b",
+      "npmIntegrity": "sha512-pjxGFtOWc6SW4qv/c2F8hc+QFJ36+OlevYsnUvBVqr4B+4mJjH+8inSF8sH2Uf9SQd99kG5CxkkHxmUg2rakow==",
+      "cliSha256": "12809142119cce671afbd9d422b524778de786752aeef2ba1f70879b5d4dce0d",
+      "cliBytes": 11978841,
+      "manifestSha256": "28dcedd81c364e191793be88a2910ac77772da42447c2d7a1916dd7eab1fe217"
+    },
+    "localFindings": {
+      "path": "evidence/claude-release/source-findings.json",
+      "sha256": "3bb3a087170b86f02b711b58fc10c1cbb51d90a425d36c801ecf3defe0571d39"
+    },
+    "capture": {
+      "verified": false,
+      "messagesObserved": 0,
+      "initialHelpResult": "spawn EPERM",
+      "finalCch": "unmeasured",
+      "fullBodyHeaderComparison": "not measured"
+    },
+    "notVerified": [
+      "Final cch transport rewrite/hash engine or seed",
+      "Native binary TLS/HTTP fingerprint",
+      "Default branches observed in official live runtime",
+      "Gateway acceptance"
+    ]
+  },
+  "selectedBranch": {
+    "mode": "interactive CLI / first-party API-key / agentic / ordinary org caching",
+    "entrypoint": "cli",
+    "identity": "You are Claude Code, Anthropic's official CLI for Claude.",
+    "sdkVersion": "0.74.0",
+    "runtimeVersion": "process.version",
+    "platform": "SDK mapping of process.platform/arch",
+    "apiVersion": "2023-06-01",
+    "billing": {
+      "sample": "first user, first direct text block",
+      "sampleIndices": [
+        4,
+        7,
+        20
+      ],
+      "missingCodeUnit": "0",
+      "salt": "59cf53e54c78",
+      "versionSuffix": "SHA256(salt + sample + version).slice(0,3)",
+      "initialCch": "00000",
+      "finalCchVerified": false
+    },
+    "metadata": {
+      "format": "legacy",
+      "template": "user_DEVICE_account_ACCOUNT_session_SESSION",
+      "account": "empty unless existing or explicitly supplied",
+      "device": "host-private persisted device passed into core; no local credential/state reads",
+      "session": "existing UUID or host session; non-UUID fallback is simulator UUIDv5, not official randomUUID generation"
+    },
+    "cache": {
+      "type": "ephemeral",
+      "ttl": null,
+      "billingCached": false,
+      "placement": "identity org + main text joined with two LF separators",
+      "maxBreakpoints": 2
+    },
+    "headers": {
+      "userAgent": "claude-cli/2.1.63 (external, cli)",
+      "xApp": "cli",
+      "accept": "application/json",
+      "anthropicDangerousDirectBrowserAccess": "true",
+      "stainlessRetryCount": "0",
+      "timeoutHeader": "omitted in selected signal-only main source path",
+      "sessionRequestExtensions": "not added by this profile",
+      "helperMethod": "removed"
+    },
+    "betas": "Selected source model-dependent branch; feature/OAuth/hosted-tool branches are not invented",
+    "maxTokens": "32000 is an API fallback only; source request max_tokens is host/model-dependent"
+  },
+  "otherSourceBranches": {
+    "headless": "XCz(true)->sdk-cli; identity is You are a Claude agent, built on Anthropic's Claude Agent SDK.",
+    "headlessWithAppend": "Hybrid Claude Code/Agent SDK identity",
+    "ttl1h": "Conditional eligible OAuth allowlist or explicit Bedrock branch, not unconditional API-key default",
+    "globalCache": "Feature-dependent branch not simulated"
+  },
+  "compatibilityProfile": "claude-code/2.1.63"
+}

@@ -1,0 +1,53 @@
+{
+  "id": "codex-cli/0.107.0",
+  "client": "codex",
+  "version": "0.107.0",
+  "sourceOfTruth": "src/core/profiles.ts",
+  "evidence": {
+    "kind": "public-source",
+    "captureVerified": false,
+    "releaseTag": "rust-v0.107.0",
+    "annotatedTagObject": "d0711a4c34bf10373725fb9fe15dc5a1d6f7402d",
+    "commit": "19f8797c0f62abecb347e817aac36d18c5fc554e",
+    "releasePublishedAt": "2026-03-02T17:17:13Z",
+    "promptUrl": "https://raw.githubusercontent.com/openai/codex/19f8797c0f62abecb347e817aac36d18c5fc554e/codex-rs/core/gpt-5.2-codex_prompt.md",
+    "promptSha256": "1b3dd697043a7f613c691a3721a450251626685b3e97ac3ad3d35ea62758a31e",
+    "promptUtf8Bytes": 7589,
+    "promptCharacters": 7563,
+    "promptFile": "profiles/codex-0.107.0.prompt.md",
+    "generatedConstant": "src/core/codex-prompt.ts",
+    "headerSourceUrl": "https://raw.githubusercontent.com/openai/codex/19f8797c0f62abecb347e817aac36d18c5fc554e/codex-rs/core/src/default_client.rs",
+    "confirmed": [
+      "Full public model-specific prompt, not an excerpt",
+      "Rust DEFAULT_ORIGINATOR = codex_cli_rs",
+      "User-Agent originator/version (OS version; architecture) terminal format"
+    ],
+    "notVerified": [
+      "Complete client capture",
+      "Gateway acceptance",
+      "Current model-router selection of this model-specific template"
+    ]
+  },
+  "reference": {
+    "originator": "codex_cli_rs",
+    "platform": {
+      "os": "Windows",
+      "osVersion": "10.0.26100",
+      "arch": "x86_64",
+      "terminal": "unknown",
+      "captureVerified": false
+    },
+    "targetProtocol": "openai-responses",
+    "promptField": "instructions",
+    "sendEveryRequest": true,
+    "unsupportedBaseInstructionsField": false
+  },
+  "retention": {
+    "existingInstructions": "preserved as developer input, then replaced by full pinned upstream template",
+    "metadata": "all existing keys retained; session_id/source/cwd added only if absent",
+    "userText": "verbatim",
+    "toolNames": "unchanged",
+    "responseTranslation": "owned by host based on originalProtocol"
+  },
+  "privateLocalPromptCacheRead": false
+}

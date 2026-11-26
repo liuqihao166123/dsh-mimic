@@ -1,0 +1,75 @@
+{
+  "id": "claude-code/2.1.63",
+  "client": "claude-code",
+  "version": "2.1.63",
+  "sourceOfTruth": "src/core/profiles.ts",
+  "defaultForClient": false,
+  "evidence": {
+    "kind": "reference-specification",
+    "captureVerified": false,
+    "fullFingerprintVerified": false,
+    "sourceCorrections": {
+      "sdkVersion": "0.74.0",
+      "versionSuffix": "first-user UTF16[4,7,20] SHA256 3hex",
+      "initialCch": "00000",
+      "sourceProfile": "profiles/claude-code-2.1.63-source.json"
+    },
+    "reason": "Explicit requested compatibility tuple; not a same-version packet-capture claim",
+    "sources": [
+      "https://registry.npmjs.org/@anthropic-ai%2Fclaude-code/2.1.63",
+      "https://registry.npmjs.org/@anthropic-ai/claude-code/-/claude-code-2.1.63.tgz",
+      "https://platform.claude.com/docs/en/api/messages",
+      "https://platform.claude.com/docs/en/build-with-claude/prompt-caching",
+      "evidence/claude-release/source-findings.json"
+    ],
+    "notVerified": [
+      "Combined runtime/beta/header/cache tuple in actual capture",
+      "Final cch transport rewrite",
+      "Gateway acceptance"
+    ]
+  },
+  "reference": {
+    "runtimeVersion": "v22.16.0",
+    "sdkVersion": "0.74.0",
+    "apiVersion": "2023-06-01",
+    "entrypoint": "cli",
+    "platform": {
+      "os": "Windows",
+      "arch": "x64"
+    },
+    "beta": [
+      "claude-code-20250219",
+      "context-management-2025-06-27",
+      "prompt-caching-scope-2026-01-05"
+    ],
+    "identity": "You are Claude Code, Anthropic's official CLI for Claude.",
+    "metadataFormat": "legacy",
+    "accountPolicy": "context UUID unless existing/override",
+    "billing": {
+      "salt": "59cf53e54c78",
+      "sampleIndices": [
+        4,
+        7,
+        20
+      ],
+      "suffixLength": 3,
+      "initialCch": "00000",
+      "finalCchVerified": false
+    },
+    "cache": {
+      "type": "ephemeral",
+      "ttl": "1h",
+      "maxBreakpoints": 4,
+      "placement": "eligible system blocks including billing; first max-1 and last"
+    },
+    "sessionRequestHeaders": true,
+    "targetProtocol": "anthropic-messages"
+  },
+  "retention": {
+    "metadata": "all keys other than identity user_id stay verbatim",
+    "identity": "existing valid device/account/session retained; explicit private overrides win",
+    "toolNames": "structural repeated proxy_ removal, collision checked, target-to-original reverse map",
+    "userText": "never normalized or renamed",
+    "fakeSentinelTools": false
+  }
+}

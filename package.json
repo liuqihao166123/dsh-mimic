@@ -1,0 +1,69 @@
+{
+  "name": "dsh-provider-client-simulator",
+  "version": "0.1.5",
+  "description": "DSH provider-scoped Claude Code / Codex client identity with independent settings and atomic wire transformation",
+  "type": "module",
+  "license": "MIT",
+  "main": "./dist/index.js",
+  "exports": {
+    ".": "./dist/index.js",
+    "./client": "./dist/client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "profiles",
+    "cordis.patch.yml",
+    "README.md",
+    "FINGERPRINT.md",
+    "VERIFICATION.md",
+    "THIRD_PARTY_NOTICES.md",
+    "LICENSE.codex",
+    "NOTICE.codex",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22.17.0"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "node scripts/build.mjs && node --test --test-isolation=none build/test/core.test.js build/test/client.test.js build/test/host.test.js build/test/response.test.js build/test/bundle.test.js",
+    "test:runtime": "node scripts/build.mjs && node --test --test-isolation=none build/test/runtime.test.js",
+    "pack": "node scripts/build.mjs && node -e \"require('node:fs').mkdirSync('release',{recursive:true})\" && npm pack --ignore-scripts --pack-destination ./release"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": []
+    }
+  },
+  "devDependencies": {
+    "typescript": "5.9.3",
+    "@types/node": "24.10.0",
+    "@types/react": "19.2.2"
+  },
+  "dependencies": {
+    "@deepseek-ai/schemastery": "3.19.0",
+    "@deepseek-ai/cosmokit": "1.9.0"
+  },
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "plugin",
+    "claude-code",
+    "codex",
+    "client-fingerprint"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/liuqihao166123/dsh-provider-client-simulator.git"
+  },
+  "bugs": {
+    "url": "https://github.com/liuqihao166123/dsh-provider-client-simulator/issues"
+  },
+  "homepage": "https://github.com/liuqihao166123/dsh-provider-client-simulator#readme"
+}

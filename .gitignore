@@ -1,0 +1,12 @@
+node_modules/
+build/
+build-response-check/
+dist/
+release/
+evidence/
+.tmp/
+*.log
+*.bak
+*.bak-*
+.DS_Store
+Thumbs.db
