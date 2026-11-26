@@ -12,7 +12,7 @@ import { createContext, Script } from 'node:vm';
  * files or starts a browser/server. A recording createElement is deliberately
  * not React DOM and does not invoke the component or its hooks.
  */
-const EXPECTED_PLUGIN_ID = 'dsh-provider-client-simulator';
+const EXPECTED_PLUGIN_ID = 'dsh-mimic';
 const EXPECTED_SETTINGS_SLOT = 'settings.section';
 const EXPECTED_MAIN_SLOT = 'main';
 const EXPECTED_SIDEBAR_SLOT = 'sidebar.panellist';

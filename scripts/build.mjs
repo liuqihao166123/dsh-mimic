@@ -33,7 +33,7 @@ modules.sort((a, b) => a[0].localeCompare(b[0], 'en'));
 const definitions = modules.map(([id, code]) => JSON.stringify(id) + ': function(require,module,exports) {\n' + code + '\n}').join(',\n');
 const emittedTypes = path.join(root, 'dist/types.js');
 writeFileSync(emittedTypes, readFileSync(emittedTypes, 'utf8').replaceAll('__PLUGIN_VERSION__', pkgVersion), 'utf8');
-const bundle = '/* Generated from TypeScript. React is provided by the DSH browser host. */\nwindow.__ModuleLoader__.load({ id: "dsh-provider-client-simulator", factory: function(external) {\n' +
+const bundle = '/* Generated from TypeScript. React is provided by the DSH browser host. */\nwindow.__ModuleLoader__.load({ id: "dsh-mimic", factory: function(external) {\n' +
 'const factories={' + definitions + '}; const cache={};\n' +
 'function load(id) { if(cache[id])return cache[id].exports; if(!factories[id])return external(id); const module={exports:{}}; cache[id]=module; const local=(name)=>{ if(!name.startsWith("."))return external(name); const parts=id.split("/");parts.pop(); for(const p of name.split("/")){if(p==="..")parts.pop();else if(p!==".")parts.push(p);} return load(parts.join("/")); }; factories[id](local,module,module.exports); return module.exports;}\n' +
 'const entry=load("/client/index.js");return entry.default || entry;\n}});\n';

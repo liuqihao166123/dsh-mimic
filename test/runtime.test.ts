@@ -60,8 +60,8 @@ const MODULE_ROOT = runtimeRootKind === '@deepseek-ai' ? RUNTIME_SOURCE_ROOT
 const actualUrl = (name: string): string => pathToFileURL(path.join(MODULE_ROOT, name, 'lib/index.js')).href;
 const CORDIS_URL = actualUrl('cordis'), LLM_URL = actualUrl('dsh-llm');
 const MAIN_URL = pathToFileURL(path.join(ROOT, 'dist/index.js')).href;
-const API = '/dsh-provider-client-simulator/api';
-const FALLBACK_NS = 'dsh-provider-client-simulator';
+const API = '/dsh-mimic/api';
+const FALLBACK_NS = 'dsh-mimic';
 const MODEL = 'fixture-model';
 const SESSION_A = '0e41012a-ec50-4a18-96cc-76ee9a53b47b';
 const SESSION_B = 'a5c9b1c7-60c6-47ae-a0c4-061f32396a70';

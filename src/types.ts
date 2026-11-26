@@ -69,9 +69,9 @@ export interface PanelState {
   profiles: { id: string; client: Exclude<ClientKind, 'none'>; version: string; label: string; evidence: string }[];
   entries: ListenerEntry[];
 }
-export const PLUGIN_NAME = 'dsh-provider-client-simulator';
+export const PLUGIN_NAME = 'dsh-mimic';
 /** Build replaces this marker with package.json version; the test suite asserts they match. */
 export const PLUGIN_VERSION = '__PLUGIN_VERSION__';
-export const SETTINGS_NS = 'dsh-provider-client-simulator';
-export const API_PATH = '/dsh-provider-client-simulator/api';
+export const SETTINGS_NS = 'dsh-mimic';
+export const API_PATH = '/dsh-mimic/api';
 /** RPC: state {}; save {providerId,rule,revision}; listener {enabled,revision}; logs {}; clear {}. */

@@ -1,7 +1,6 @@
 node_modules/
 build/
 build-response-check/
-dist/
 release/
 evidence/
 .tmp/

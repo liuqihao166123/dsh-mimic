@@ -18,7 +18,7 @@ interface Registry {
   wrapped: typeof fetch;
   leases: number;
 }
-const key = Symbol.for('dsh-provider-client-simulator.transport.v1');
+const key = Symbol.for('dsh-mimic.transport.v1');
 const shared = globalThis as typeof globalThis & { [key: symbol]: unknown };
 const maxBodyBytes = 16 * 1024 * 1024;
 export function detectProtocol(url: string): WireProtocol | undefined {
