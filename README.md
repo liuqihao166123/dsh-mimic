@@ -13,7 +13,7 @@
 
 ### 方式一：安装打包好的 tgz（推荐）
 
-从 [Releases](https://github.com/liuqihao166123/dsh-provider-client-simulator/releases/latest) 下载 `dsh-provider-client-simulator-0.1.5.tgz`，打开 DSH **插件 → 添加插件 → 安装现有插件**，包来源填 tgz 的**完整绝对路径**：
+从 [Releases](https://github.com/liuqihao166123/dsh-mimic/releases/latest) 下载 `dsh-provider-client-simulator-0.1.5.tgz`，打开 DSH **插件 → 添加插件 → 安装现有插件**，包来源填 tgz 的**完整绝对路径**：
 
 ```text
 <下载目录>/dsh-provider-client-simulator-0.1.5.tgz

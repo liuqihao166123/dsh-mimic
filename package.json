@@ -60,10 +60,10 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/liuqihao166123/dsh-provider-client-simulator.git"
+    "url": "https://github.com/liuqihao166123/dsh-mimic.git"
   },
   "bugs": {
-    "url": "https://github.com/liuqihao166123/dsh-provider-client-simulator/issues"
+    "url": "https://github.com/liuqihao166123/dsh-mimic/issues"
   },
-  "homepage": "https://github.com/liuqihao166123/dsh-provider-client-simulator#readme"
+  "homepage": "https://github.com/liuqihao166123/dsh-mimic#readme"
 }
