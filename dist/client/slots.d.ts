@@ -36,6 +36,7 @@ export interface ClientContext {
 /** Renderers the panel module supplies; the icon is rendered inside the left-rail row, the panel inside both the settings section and the main area. */
 export interface ClientUiRenderers {
     panel: () => unknown;
+    mainPanel?: () => unknown;
     icon: (owner?: {
         size?: number;
     }) => unknown;

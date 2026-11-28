@@ -30,6 +30,7 @@ export interface ClientContext { get(name: string): unknown; slots?: SlotsServic
 /** Renderers the panel module supplies; the icon is rendered inside the left-rail row, the panel inside both the settings section and the main area. */
 export interface ClientUiRenderers {
   panel: () => unknown;
+  mainPanel?: () => unknown;
   icon: (owner?: { size?: number }) => unknown;
 }
 
@@ -53,7 +54,7 @@ function registerAll(slots: SlotsService, render: ClientUiRenderers): void {
   }, render.panel));
   slots.inject(MAIN_SLOT_ID, () => slots.register({
     name: MAIN_SLOT_ID, key: PANEL_ID, label: () => PANEL_TITLE,
-  }, render.panel));
+  }, render.mainPanel ?? render.panel));
   slots.inject(SIDEBAR_SLOT_ID, () => slots.register({
     name: SIDEBAR_SLOT_ID, id: PANEL_ID, order: 30, label: () => PANEL_TITLE,
   }, render.icon));

@@ -1,4 +1,5 @@
 import { API_PATH } from '../types.js';
+import { projectCacheDiagnostics, projectCacheReport, validCacheDiagnostics, validCacheReport } from './cache-model.js';
 export const EDITABLE_OVERRIDE_KEYS = [
     'version', 'runtimeVersion', 'sdkVersion', 'beta', 'identity', 'originator',
     'metadataFormat', 'extraHeaders',
@@ -247,7 +248,9 @@ export function projectPanelState(state) {
             listener: { enabled: state.config.listener.enabled, maxEntries: state.config.listener.maxEntries } },
         runtime: { transport: state.runtime.transport, registrations: state.runtime.registrations, detail: redactText(state.runtime.detail),
             ...(state.runtime.concurrency ? { concurrency: state.runtime.concurrency.map(item => ({ providerId: item.providerId, limit: item.limit, active: item.active, queued: item.queued })) } : {}),
-            ...(state.runtime.cache ? { cache: state.runtime.cache.map(item => ({ providerId: item.providerId, requests: item.requests, promptTokens: item.promptTokens, cachedTokens: item.cachedTokens, hitRate: item.hitRate })) } : {}) },
+            ...(state.runtime.cache ? { cache: state.runtime.cache.map(item => ({ providerId: item.providerId, requests: item.requests, promptTokens: item.promptTokens, cachedTokens: item.cachedTokens, hitRate: item.hitRate })) } : {}),
+            ...(state.runtime.cacheReport ? { cacheReport: projectCacheReport(state.runtime.cacheReport) } : {}),
+            ...(state.runtime.cacheDiagnostics ? { cacheDiagnostics: projectCacheDiagnostics(state.runtime.cacheDiagnostics) } : {}) },
         profiles: state.profiles.map(profile => ({ id: profile.id, client: profile.client, version: profile.version,
             label: profile.label, evidence: redactText(profile.evidence) })),
         entries: state.entries.map(redactListenerEntry),
@@ -403,7 +406,8 @@ function validPanelState(value) {
         || !Number.isSafeInteger(config.listener.maxEntries) || Number(config.listener.maxEntries) < 0
         || !['active', 'waiting', 'unsupported'].includes(String(value.runtime.transport))
         || typeof value.runtime.detail !== 'string' || !Number.isSafeInteger(value.runtime.registrations)
-        || !validConcurrencyStats(value.runtime.concurrency) || !validCacheStats(value.runtime.cache))
+        || !validConcurrencyStats(value.runtime.concurrency) || !validCacheStats(value.runtime.cache)
+        || !validCacheReport(value.runtime.cacheReport) || !validCacheDiagnostics(value.runtime.cacheDiagnostics))
         return false;
     return Object.values(config.providers).every(rule => isObject(rule) && ['none', 'claude-code', 'codex'].includes(String(rule.client))
         && (rule.profile === undefined || typeof rule.profile === 'string')
@@ -451,7 +455,7 @@ export function createPanelApi(fetcher) {
                 }
                 reply.entries = payload.entries.map(redactListenerEntry);
             }
-            if (request.action === 'state' || request.action === 'save' || request.action === 'listener') {
+            if (request.action === 'state' || request.action === 'save' || request.action === 'listener' || request.action === 'cache-reset' || request.action === 'cache-diagnostics' || request.action === 'cache-diagnostics-clear') {
                 if (!reply.state)
                     throw new PanelRpcError('服务未返回最新配置状态。', 'INVALID_RESPONSE', response.status);
             }

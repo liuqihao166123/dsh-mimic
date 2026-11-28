@@ -1,8 +1,9 @@
 import type { TransformResult, WireProtocol } from '../types.js';
+import { readUsage, mergeUsage, type NormalizedUsage } from './usage.js';
 
 type Obj = Record<string, unknown>;
 type Kind = 'text' | 'thinking' | 'tool';
-type Usage = { input: number; output: number; cached: number; cacheWrite: number; reasoning: number; anthropicInput?: number };
+type Usage = NormalizedUsage;
 type Meta = { id?: string; model?: string; created?: number };
 type Block = { key: string; kind: Kind; id?: string; name?: string; text?: string; args?: string; signature?: string; encrypted?: string };
 type Event =
@@ -20,41 +21,12 @@ const MAX_EVENT_CHARS = 1024 * 1024;
 const MAX_BLOCKS = 4096;
 const encoder = new TextEncoder();
 const emptyUsage = (): Usage => ({ input: 0, output: 0, cached: 0, cacheWrite: 0, reasoning: 0 });
-function mergeUsage(current: Usage, incoming?: Partial<Usage>): Usage {
-  const merged = { ...current, ...incoming };
-  // Anthropic cache counters are separate from input_tokens and may arrive in later partial snapshots.
-  if (merged.anthropicInput !== undefined) merged.input = merged.anthropicInput + merged.cached + merged.cacheWrite;
-  return merged;
-}
 const obj = (v: unknown): Obj => v !== null && typeof v === 'object' && !Array.isArray(v) ? v as Obj : {};
 const list = (v: unknown): unknown[] => Array.isArray(v) ? v : [];
 const str = (v: unknown): string => typeof v === 'string' ? v : '';
 const num = (v: unknown): number | undefined => typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : undefined;
 const index = (v: unknown): number => Number.isSafeInteger(v) && Number(v) >= 0 ? Number(v) : 0;
 const toolName = (name: string, names: Record<string, string>): string => Object.hasOwn(names, name) ? names[name]! : name;
-
-function readUsage(value: unknown, protocol: WireProtocol): Partial<Usage> {
-  const u = obj(value);
-  const result: Partial<Usage> = {};
-  if (protocol === 'anthropic-messages') {
-    const input = num(u.input_tokens), cached = num(u.cache_read_input_tokens), written = num(u.cache_creation_input_tokens);
-    if (input !== undefined) { result.anthropicInput = input; result.input = input + (cached ?? 0) + (written ?? 0); }
-    if (cached !== undefined) result.cached = cached;
-    if (written !== undefined) result.cacheWrite = written;
-    if (num(u.output_tokens) !== undefined) result.output = num(u.output_tokens);
-  } else {
-    const chat = protocol === 'openai-chat-completions';
-    const input = num(u[chat ? 'prompt_tokens' : 'input_tokens']), output = num(u[chat ? 'completion_tokens' : 'output_tokens']);
-    if (input !== undefined) result.input = input;
-    if (output !== undefined) result.output = output;
-    const inDetails = obj(u[chat ? 'prompt_tokens_details' : 'input_tokens_details']);
-    const outDetails = obj(u[chat ? 'completion_tokens_details' : 'output_tokens_details']);
-    if (num(inDetails.cached_tokens) !== undefined) result.cached = num(inDetails.cached_tokens);
-    if (num(inDetails.cache_creation_tokens) !== undefined) result.cacheWrite = num(inDetails.cache_creation_tokens);
-    if (num(outDetails.reasoning_tokens) !== undefined) result.reasoning = num(outDetails.reasoning_tokens);
-  }
-  return result;
-}
 
 function writeUsage(u: Usage, protocol: WireProtocol): Obj {
   if (protocol === 'anthropic-messages') return {

@@ -1,4 +1,8 @@
-import type { ListenerEntry, ProviderRule, RequestIdentity, TransformContext, TransformResult, WireProtocol } from '../types.js';
+import type { CacheOutcome, ListenerEntry, ProviderRule, RequestIdentity, TransformContext, TransformResult, WireProtocol } from '../types.js';
+import { type UsageObservation } from './usage.js';
+export interface TransportAttempt {
+    complete(observation: UsageObservation, outcome?: CacheOutcome): void;
+}
 export interface TransportScope {
     identity: Omit<RequestIdentity, 'url' | 'protocol'>;
     rule: ProviderRule;
@@ -6,8 +10,8 @@ export interface TransportScope {
     accountId: string;
     baseUrl?: string;
     record: (result: TransformResult, context: TransformContext) => ListenerEntry | undefined;
-    /** Passive usage tap; bounded to the first 4 MiB of the reply and never allowed to fail a request. */
-    usage?: (text: string) => void;
+    /** Passive accounting observes the transformed wire request and never changes it. */
+    observe?: (result: TransformResult, context: TransformContext) => TransportAttempt;
     onError: (code: string) => void;
 }
 export declare function detectProtocol(url: string): WireProtocol | undefined;

@@ -87,6 +87,20 @@ test('client UI registers the settings section, the main page, and the left-rail
   assert.equal(PANEL_ID, PLUGIN_NAME);
   assert.equal(PANEL_TITLE, '客户端模拟');
 });
+test('main page can own its scroll viewport while settings retain the embedded panel', () => {
+  const callbacks = new Map<string, () => unknown>();
+  const registrations = new Map<string, (owner?: { size?: number }) => unknown>();
+  const slots: SlotsService = {
+    inject(name, callback) { callbacks.set(name, callback); },
+    register(descriptor, render) { registrations.set(descriptor.name, render); },
+  };
+  const panel = () => 'embedded';
+  const mainPanel = () => 'scrollable-page';
+  registerClientUi({ get: () => slots }, { panel, mainPanel, icon: () => null });
+  callbacks.get(SETTINGS_SLOT_ID)?.(); callbacks.get(MAIN_SLOT_ID)?.();
+  assert.equal(registrations.get(SETTINGS_SLOT_ID), panel);
+  assert.equal(registrations.get(MAIN_SLOT_ID), mainPanel);
+});
 test('missing or incomplete slot service produces no invented mount path', () => {
   const renderers = { panel: () => null, icon: () => null };
   assert.doesNotThrow(() => registerClientUi({ get: () => undefined }, renderers));

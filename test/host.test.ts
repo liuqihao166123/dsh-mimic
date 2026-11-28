@@ -13,7 +13,8 @@ import { CacheMetrics, extractUsage } from '../src/host/metrics.js';
 import type { TransportLease, TransportScope } from '../src/host/transport.js';
 import type { LlmDirectory, SettingsHost, SettingsDescriptor } from '../src/host/contracts.js';
 import { API_PATH, SETTINGS_NS } from '../src/types.js';
-import type { JsonObject, PluginConfig, ProviderRule, TransformResult } from '../src/types.js';
+import type { CacheOutcome, JsonObject, PluginConfig, ProviderRule, TransformResult } from '../src/types.js';
+import type { UsageObservation } from '../src/host/usage.js';
 
 class FakeSettings implements SettingsHost {
   writable = true;
@@ -370,17 +371,250 @@ test('concurrency reject mode fails the extra stream immediately instead of queu
   assert.deepEqual(limiter.usage('p'), { active: 0, queued: 0 });
 });
 
-test('cache usage is parsed from SSE and JSON replies with a bounded scan', () => {
+test('cache usage is parsed from SSE and JSON replies with protocol-correct denominators', () => {
   const sse = 'event: message_start\ndata: {"type":"message_start","message":{"usage":{"input_tokens":12,"cache_read_input_tokens":980,"cache_creation_input_tokens":0}}}\n\nevent: message_delta\ndata: {"type":"message_delta","usage":{"output_tokens":5}}\n\n';
-  assert.deepEqual(extractUsage(sse), { prompt: 12, cached: 980, written: 0 });
+  assert.deepEqual(extractUsage(sse), { prompt: 992, cached: 980, written: 0, cacheReported: true });
   const json = '{"usage":{"input_tokens":1000,"input_tokens_details":{"cached_tokens":750},"output_tokens":20}}';
-  assert.deepEqual(extractUsage(json), { prompt: 1000, cached: 750, written: 0 });
+  assert.deepEqual(extractUsage(json), { prompt: 1000, cached: 750, written: 0, cacheReported: true });
   assert.equal(extractUsage('no usage here'), undefined);
   const metrics = new CacheMetrics();
   metrics.ingest('p', json); metrics.ingest('p', json); metrics.ingest('q', sse);
   const snapshot = metrics.snapshot();
   assert.deepEqual(snapshot.find(item => item.providerId === 'p'), { providerId: 'p', requests: 2, promptTokens: 2000, cachedTokens: 1500, hitRate: 0.75 });
-  assert.equal(snapshot.find(item => item.providerId === 'q')!.hitRate, 1);
+  assert.equal(snapshot.find(item => item.providerId === 'q')!.hitRate, 980 / 992);
   metrics.clear();
   assert.deepEqual(metrics.snapshot(), []);
+});
+
+function observedScope() {
+  const s = scope();
+  const settled: { observation: UsageObservation; outcome?: CacheOutcome }[] = [];
+  let starts = 0;
+  s.observe = () => { starts++; return { complete: (observation, outcome) => settled.push({ observation, outcome }) }; };
+  return { s, settled, starts: () => starts };
+}
+const observedRequest = () => ({ method: 'POST', body: JSON.stringify({ model: 'model-a', max_tokens: 256, messages: [{ role: 'user', content: '原始请求不变' }] }) });
+
+test('passive transport collects JSON usage into metrics while the request listener is disabled', async () => {
+  const listener = new RequestListener(), metrics = new CacheMetrics(), s = scope('a', 'claude-code', listener);
+  const contexts: string[] = [];
+  s.observe = (result, context) => {
+    contexts.push(context.identity.providerId);
+    return metrics.begin({ providerId: context.identity.providerId, modelId: context.identity.modelId, profile: result.profile, protocol: result.targetProtocol, sessionTag: 'fixture-session', sessionSource: 'host' });
+  };
+  const raw = JSON.stringify({ ...anthropicReply, usage: { input_tokens: 12, cache_read_input_tokens: 980, cache_creation_input_tokens: 0 } });
+  await withTransport(async lease => {
+    const response = await lease.run(s, () => fetch('https://fixture.invalid/v1/messages', observedRequest()));
+    assert.equal(await response.text(), raw);
+  }, (async () => new Response(raw, { headers: { 'content-type': 'application/json' } })) as typeof fetch);
+  assert.deepEqual(listener.list(), []); assert.deepEqual(contexts, ['a']);
+  const counters = metrics.report().providers[0].lifetime;
+  assert.equal(counters.requests, 1); assert.equal(counters.success, 1); assert.equal(counters.usageRequests, 1); assert.equal(counters.cacheReportedRequests, 1);
+  assert.equal(counters.promptTokens, 992); assert.equal(counters.cachedTokens, 980); assert.equal(counters.hitRate, 980 / 992); assert.equal(counters.coverage, 1);
+});
+
+test('enabling passive observation preserves exact outbound URL headers body and inbound response bytes', async () => {
+  const sent: { url: string; headers: [string, string][]; body: string; method?: string }[] = [], received: Uint8Array[] = [];
+  const wire = new TextEncoder().encode(' { "content" : "原始响应\\r\\n", "usage": { "input_tokens":12, "cache_read_input_tokens":980 } }\r\n');
+  const watched = observedScope();
+  await withTransport(async lease => {
+    for (const s of [scope(), watched.s]) {
+      const response = await lease.run(s, () => fetch('https://fixture.invalid/v1/messages?fixture=keep', { ...observedRequest(), headers: { authorization: 'Bearer ORIGINAL_AUTH', 'x-fixture': 'unchanged' } }));
+      assert.equal(response.status, 201); assert.equal(response.statusText, 'Created'); assert.equal(response.headers.get('x-fixture'), 'wire-response');
+      received.push(new Uint8Array(await response.arrayBuffer()));
+    }
+  }, (async (url, init) => {
+    sent.push({ url: String(url), headers: [...new Headers(init?.headers).entries()], body: String(init?.body), method: init?.method });
+    return new Response(new ReadableStream<Uint8Array>({ start(controller) { controller.enqueue(wire.subarray(0, 13)); controller.enqueue(wire.subarray(13, 41)); controller.enqueue(wire.subarray(41)); controller.close(); } }), { status: 201, statusText: 'Created', headers: { 'content-type': 'application/json', 'x-fixture': 'wire-response' } });
+  }) as typeof fetch);
+  assert.deepEqual(sent[1], sent[0]); assert.deepEqual(received[0], wire); assert.deepEqual(received[1], wire);
+  assert.equal(watched.starts(), 1); assert.equal(watched.settled.length, 1); assert.equal(watched.settled[0].observation.state, 'complete');
+  assert.deepEqual(watched.settled[0].observation.sample, { prompt: 992, cached: 980, written: 0, cacheReported: true });
+});
+
+test('passive transport captures terminal SSE usage across UTF-8 and CRLF network chunks', async () => {
+  const watched = observedScope();
+  const raw = 'event: message_start\r\ndata: {"type":"message_start","message":{"usage":{"input_tokens":12,"cache_read_input_tokens":980}}}\r\n\r\nevent: content_block_delta\r\ndata: {"type":"content_block_delta","delta":{"text":"字节保持"}}\r\n\r\nevent: message_delta\r\ndata: {"type":"message_delta","usage":{"output_tokens":5}}\r\n\r\nevent: message_stop\r\ndata: {"type":"message_stop"}\r\n\r\n';
+  const wire = new TextEncoder().encode(raw);
+  await withTransport(async lease => {
+    const response = await lease.run(watched.s, () => fetch('https://fixture.invalid/v1/messages', observedRequest()));
+    assert.deepEqual(new Uint8Array(await response.arrayBuffer()), wire);
+  }, (async () => new Response(new ReadableStream<Uint8Array>({ start(controller) { for (let i = 0; i < wire.length; i += 3) controller.enqueue(wire.subarray(i, i + 3)); controller.close(); } }), { headers: { 'content-type': 'text/event-stream; charset=utf-8' } })) as typeof fetch);
+  assert.equal(watched.settled.length, 1);
+  assert.deepEqual(watched.settled[0].observation, { sample: { prompt: 992, cached: 980, written: 0, cacheReported: true }, state: 'complete', malformed: false, limitExceeded: false });
+  assert.equal(watched.settled[0].outcome, undefined);
+});
+
+test('passive transport preserves usage from incomplete SSE without reporting completion', async () => {
+  const watched = observedScope(), raw = 'data: {"type":"message_start","message":{"usage":{"input_tokens":12,"cache_read_input_tokens":980}}}\n\n';
+  await withTransport(async lease => {
+    const response = await lease.run(watched.s, () => fetch('https://fixture.invalid/v1/messages', observedRequest()));
+    assert.equal(await response.text(), raw);
+  }, (async () => new Response(raw, { headers: { 'content-type': 'text/event-stream' } })) as typeof fetch);
+  assert.equal(watched.settled.length, 1); assert.equal(watched.settled[0].observation.state, 'incomplete');
+  assert.equal(watched.settled[0].observation.sample?.cached, 980);
+});
+
+test('passive transport forwards reader.cancel reason to the native stream and settles once', async () => {
+  const watched = observedScope(), reason = { fixture: 'cancel-reason' }, cancelled: unknown[] = [];
+  const first = new TextEncoder().encode('data: {"type":"message_start","message":{"usage":{"input_tokens":12,"cache_read_input_tokens":980}}}\n\n');
+  await withTransport(async lease => {
+    const response = await lease.run(watched.s, () => fetch('https://fixture.invalid/v1/messages', observedRequest()));
+    const reader = response.body!.getReader(); assert.deepEqual((await reader.read()).value, first);
+    await reader.cancel(reason); reader.releaseLock();
+  }, (async () => new Response(new ReadableStream<Uint8Array>({ start(controller) { controller.enqueue(first); }, cancel(value) { cancelled.push(value); } }), { headers: { 'content-type': 'text/event-stream' } })) as typeof fetch);
+  assert.deepEqual(cancelled, [reason]); assert.equal(cancelled[0], reason); assert.equal(watched.settled.length, 1);
+  assert.equal(watched.settled[0].outcome, 'cancelled'); assert.equal(watched.settled[0].observation.state, 'incomplete'); assert.equal(watched.settled[0].observation.sample?.cached, 980);
+});
+
+test('passive transport reports fetch failure and propagates the original exception', async () => {
+  const watched = observedScope(), failure = new Error('FETCH_FIXTURE_FAILURE');
+  await withTransport(async lease => {
+    await assert.rejects(lease.run(watched.s, () => fetch('https://fixture.invalid/v1/messages', observedRequest())), error => error === failure);
+  }, (async () => { throw failure; }) as typeof fetch);
+  assert.deepEqual(watched.settled, [{ observation: { state: 'failed', malformed: false, limitExceeded: false }, outcome: 'stream-error' }]);
+});
+
+test('passive transport reports native body stream errors without replacing the exception', async () => {
+  const watched = observedScope(), failure = new Error('STREAM_FIXTURE_FAILURE');
+  await withTransport(async lease => {
+    const response = await lease.run(watched.s, () => fetch('https://fixture.invalid/v1/messages', observedRequest()));
+    await assert.rejects(response.text(), error => error === failure);
+  }, (async () => new Response(new ReadableStream<Uint8Array>({ pull(controller) { controller.error(failure); } }), { headers: { 'content-type': 'text/event-stream' } })) as typeof fetch);
+  assert.equal(watched.settled.length, 1); assert.equal(watched.settled[0].outcome, 'stream-error'); assert.equal(watched.settled[0].observation.state, 'incomplete');
+});
+
+test('passive transport classifies aborted fetch as cancelled and preserves its signal and error', async () => {
+  const watched = observedScope(), abort = new AbortController(), failure = new DOMException('fixture abort', 'AbortError'); abort.abort();
+  await withTransport(async lease => {
+    await assert.rejects(lease.run(watched.s, () => fetch('https://fixture.invalid/v1/messages', { ...observedRequest(), signal: abort.signal })), error => error === failure);
+  }, (async (_url, init) => { assert.equal(init?.signal, abort.signal); throw failure; }) as typeof fetch);
+  assert.equal(watched.settled.length, 1); assert.equal(watched.settled[0].outcome, 'cancelled'); assert.equal(watched.settled[0].observation.state, 'failed');
+});
+
+test('passive transport settles signal abort during a response once and preserves native stream AbortError', async () => {
+  const watched = observedScope(), abort = new AbortController(), failure = new DOMException('fixture stream abort', 'AbortError');
+  let nativeController: ReadableStreamDefaultController<Uint8Array> | undefined;
+  await withTransport(async lease => {
+    const response = await lease.run(watched.s, () => fetch('https://fixture.invalid/v1/messages', { ...observedRequest(), signal: abort.signal }));
+    const reader = response.body!.getReader(); await reader.read(); abort.abort(); nativeController!.error(failure);
+    await assert.rejects(reader.read(), error => error === failure); reader.releaseLock();
+  }, (async () => new Response(new ReadableStream<Uint8Array>({ start(controller) { nativeController = controller; controller.enqueue(new TextEncoder().encode(': fixture\n\n')); } }), { headers: { 'content-type': 'text/event-stream' } })) as typeof fetch);
+  assert.equal(watched.settled.length, 1); assert.equal(watched.settled[0].outcome, 'cancelled');
+});
+
+test('passive transport retains HTTP failure status headers and body while reporting http-error', async () => {
+  const watched = observedScope(), raw = '{ "error": { "type": "rate_limit_error", "message": "fixture" } }';
+  await withTransport(async lease => {
+    const response = await lease.run(watched.s, () => fetch('https://fixture.invalid/v1/messages', observedRequest()));
+    assert.equal(response.status, 429); assert.equal(response.headers.get('retry-after'), '12'); assert.equal(await response.text(), raw);
+  }, (async () => new Response(raw, { status: 429, headers: { 'content-type': 'application/json', 'retry-after': '12' } })) as typeof fetch);
+  assert.equal(watched.settled.length, 1); assert.equal(watched.settled[0].outcome, 'http-error'); assert.equal(watched.settled[0].observation.sample, undefined);
+});
+
+test('None bypass never invokes the passive observer and returns the native Response instance', async () => {
+  let calls = 0; const s = scope('native', 'none'), native = jsonResponse(chatReply);
+  s.observe = () => { calls++; throw new Error('NONE_OBSERVER_MUST_NOT_RUN'); };
+  await withTransport(async lease => {
+    const response = await lease.run(s, () => fetch('https://fixture.invalid/v1/chat/completions', observedRequest()));
+    assert.equal(response, native); assert.deepEqual(await response.json(), chatReply);
+  }, (async () => native) as typeof fetch);
+  assert.equal(calls, 0);
+});
+
+test('throwing observer initialization does not affect fetch or response consumption', async () => {
+  const s = scope(); let observerCalls = 0, fetchCalls = 0;
+  s.observe = () => { observerCalls++; throw new Error('OBSERVER_START_FAILURE'); };
+  await withTransport(async lease => {
+    const response = await lease.run(s, () => fetch('https://fixture.invalid/v1/messages', observedRequest()));
+    assert.deepEqual(await response.json(), anthropicReply);
+  }, (async () => { fetchCalls++; return jsonResponse(anthropicReply); }) as typeof fetch);
+  assert.equal(observerCalls, 1); assert.equal(fetchCalls, 1);
+});
+
+test('throwing observer completion does not affect response bytes or duplicate settlement', async () => {
+  const s = scope(), raw = JSON.stringify(anthropicReply); let completions = 0;
+  s.observe = () => ({ complete() { completions++; throw new Error('OBSERVER_COMPLETE_FAILURE'); } });
+  await withTransport(async lease => {
+    const response = await lease.run(s, () => fetch('https://fixture.invalid/v1/messages', observedRequest())); assert.equal(await response.text(), raw);
+  }, (async () => new Response(raw, { headers: { 'content-type': 'application/json' } })) as typeof fetch);
+  assert.equal(completions, 1);
+});
+
+function runtimeControlSetup() {
+  const { store, settings, listener } = setup(), calls: { action: string; value?: string | boolean }[] = [];
+  const before = store.snapshot(), settingsBefore = structuredClone(settings.docs);
+  const controller = new PanelController(store, llm, settings, listener, () => ({ transport: 'active', detail: 'runtime-control-fixture', registrations: 1 }), {
+    resetCache: providerId => { calls.push({ action: 'reset', value: providerId }); },
+    diagnostics: enabled => { calls.push({ action: 'diagnostics', value: enabled }); },
+    clearDiagnostics: providerId => { calls.push({ action: 'clear-diagnostics', value: providerId }); },
+  });
+  return { controller, calls, assertUnchanged() { assert.deepEqual(store.snapshot(), before); assert.equal(store.snapshot().revision, before.revision); assert.deepEqual(settings.docs, settingsBefore); assert.deepEqual(settings.writes, []); } };
+}
+
+test('cache-reset runtime RPC supports provider and global resets without settings writes or revision changes', async () => {
+  const fixture = runtimeControlSetup();
+  for (const providerId of ['a', undefined]) {
+    const result = await fixture.controller.call({ action: 'cache-reset', ...(providerId ? { providerId } : {}), revision: 999 }) as { ok: boolean; state: { config: { revision: number } } };
+    assert.equal(result.ok, true); assert.equal(result.state.config.revision, 0); fixture.assertUnchanged();
+  }
+  assert.deepEqual(fixture.calls, [{ action: 'reset', value: 'a' }, { action: 'reset', value: undefined }]);
+});
+
+test('cache-diagnostics runtime RPC enables and disables diagnostics without persisting configuration', async () => {
+  const fixture = runtimeControlSetup();
+  for (const enabled of [true, false]) { const result = await fixture.controller.call({ action: 'cache-diagnostics', enabled }) as { ok: boolean }; assert.equal(result.ok, true); fixture.assertUnchanged(); }
+  assert.deepEqual(fixture.calls, [{ action: 'diagnostics', value: true }, { action: 'diagnostics', value: false }]);
+});
+
+test('cache-diagnostics-clear runtime RPC supports provider and global clears without settings writes', async () => {
+  const fixture = runtimeControlSetup();
+  for (const providerId of ['b', undefined]) { const result = await fixture.controller.call({ action: 'cache-diagnostics-clear', ...(providerId ? { providerId } : {}) }) as { ok: boolean }; assert.equal(result.ok, true); fixture.assertUnchanged(); }
+  assert.deepEqual(fixture.calls, [{ action: 'clear-diagnostics', value: 'b' }, { action: 'clear-diagnostics', value: undefined }]);
+});
+
+test('runtime control RPC validates provider identifiers and diagnostic booleans before invoking controls', async () => {
+  const fixture = runtimeControlSetup();
+  for (const action of ['cache-reset', 'cache-diagnostics-clear']) for (const providerId of ['', 'x'.repeat(513), null, 1, true, [], {}]) {
+    await assert.rejects(fixture.controller.call({ action, providerId }), (error: unknown) => error instanceof RpcError && error.code === 'INVALID_PROVIDER' && error.status === 400);
+  }
+  for (const enabled of [undefined, null, 0, 1, 'true', [], {}]) {
+    await assert.rejects(fixture.controller.call({ action: 'cache-diagnostics', enabled }), (error: unknown) => error instanceof RpcError && error.code === 'INVALID_DIAGNOSTICS' && error.status === 400);
+  }
+  assert.deepEqual(fixture.calls, []); fixture.assertUnchanged();
+});
+
+test('runtime control RPC reports unavailable controls without settings writes or revision changes', async () => {
+  const { controller, store, settings } = setup(), before = store.snapshot();
+  for (const action of ['cache-reset', 'cache-diagnostics', 'cache-diagnostics-clear']) {
+    await assert.rejects(controller.call({ action, enabled: true }), (error: unknown) => error instanceof RpcError && error.code === 'DIAGNOSTICS_UNAVAILABLE' && error.status === 503);
+  }
+  assert.deepEqual(store.snapshot(), before); assert.deepEqual(settings.writes, []);
+});
+
+test('bridge cleanup after a terminal Responses SSE event records success when the native socket stays open', async () => {
+  const watched = observedScope(); watched.s.rule = { client: 'codex' };
+  let nativeCancellations = 0;
+  const raw = 'event: response.completed\ndata: ' + JSON.stringify({ type: 'response.completed', response: { ...responsesReply, usage: { input_tokens: 1000, input_tokens_details: { cached_tokens: 750 }, output_tokens: 20 } } }) + '\n\n';
+  await withTransport(async lease => {
+    const response = await lease.run(watched.s, () => fetch('https://fixture.invalid/v1/chat/completions', { method: 'POST', body: JSON.stringify(chat()) }));
+    const translated = await response.text(); assert.ok(translated.includes('data: [DONE]')); assert.ok(translated.includes('responses-ok'));
+  }, (async () => new Response(new ReadableStream<Uint8Array>({ start(controller) { controller.enqueue(new TextEncoder().encode(raw)); }, cancel() { nativeCancellations++; } }), { headers: { 'content-type': 'text/event-stream' } })) as typeof fetch);
+  assert.equal(nativeCancellations, 1); assert.equal(watched.settled.length, 1);
+  assert.equal(watched.settled[0].observation.state, 'complete'); assert.equal(watched.settled[0].outcome ?? 'success', 'success');
+  assert.deepEqual(watched.settled[0].observation.sample, { prompt: 1000, cached: 750, written: 0, cacheReported: true });
+});
+
+test('passive observation performs no native read before the caller consumes a zero-HWM response body', async () => {
+  const watched = observedScope(), nativePulls: number[] = [];
+  let currentPulls = 0;
+  await withTransport(async lease => {
+    for (const s of [scope(), watched.s]) {
+      currentPulls = 0;
+      const response = await lease.run(s, () => fetch('https://fixture.invalid/v1/messages', observedRequest()));
+      await new Promise<void>(resolve => setImmediate(resolve)); nativePulls.push(currentPulls);
+      await response.body!.cancel('fixture cleanup');
+    }
+  }, (async () => new Response(new ReadableStream<Uint8Array>({ pull() { currentPulls++; } }, { highWaterMark: 0 }), { headers: { 'content-type': 'text/event-stream' } })) as typeof fetch);
+  assert.deepEqual(nativePulls, [0, 0], 'observation must preserve lazy native stream consumption');
 });

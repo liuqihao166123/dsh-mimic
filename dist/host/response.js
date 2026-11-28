@@ -1,55 +1,15 @@
+import { readUsage, mergeUsage } from './usage.js';
 // Bound each logical event, not a complete response or a network chunk.
 const MAX_EVENT_CHARS = 1024 * 1024;
 const MAX_BLOCKS = 4096;
 const encoder = new TextEncoder();
 const emptyUsage = () => ({ input: 0, output: 0, cached: 0, cacheWrite: 0, reasoning: 0 });
-function mergeUsage(current, incoming) {
-    const merged = { ...current, ...incoming };
-    // Anthropic cache counters are separate from input_tokens and may arrive in later partial snapshots.
-    if (merged.anthropicInput !== undefined)
-        merged.input = merged.anthropicInput + merged.cached + merged.cacheWrite;
-    return merged;
-}
 const obj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v) ? v : {};
 const list = (v) => Array.isArray(v) ? v : [];
 const str = (v) => typeof v === 'string' ? v : '';
 const num = (v) => typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : undefined;
 const index = (v) => Number.isSafeInteger(v) && Number(v) >= 0 ? Number(v) : 0;
 const toolName = (name, names) => Object.hasOwn(names, name) ? names[name] : name;
-function readUsage(value, protocol) {
-    const u = obj(value);
-    const result = {};
-    if (protocol === 'anthropic-messages') {
-        const input = num(u.input_tokens), cached = num(u.cache_read_input_tokens), written = num(u.cache_creation_input_tokens);
-        if (input !== undefined) {
-            result.anthropicInput = input;
-            result.input = input + (cached ?? 0) + (written ?? 0);
-        }
-        if (cached !== undefined)
-            result.cached = cached;
-        if (written !== undefined)
-            result.cacheWrite = written;
-        if (num(u.output_tokens) !== undefined)
-            result.output = num(u.output_tokens);
-    }
-    else {
-        const chat = protocol === 'openai-chat-completions';
-        const input = num(u[chat ? 'prompt_tokens' : 'input_tokens']), output = num(u[chat ? 'completion_tokens' : 'output_tokens']);
-        if (input !== undefined)
-            result.input = input;
-        if (output !== undefined)
-            result.output = output;
-        const inDetails = obj(u[chat ? 'prompt_tokens_details' : 'input_tokens_details']);
-        const outDetails = obj(u[chat ? 'completion_tokens_details' : 'output_tokens_details']);
-        if (num(inDetails.cached_tokens) !== undefined)
-            result.cached = num(inDetails.cached_tokens);
-        if (num(inDetails.cache_creation_tokens) !== undefined)
-            result.cacheWrite = num(inDetails.cache_creation_tokens);
-        if (num(outDetails.reasoning_tokens) !== undefined)
-            result.reasoning = num(outDetails.reasoning_tokens);
-    }
-    return result;
-}
 function writeUsage(u, protocol) {
     if (protocol === 'anthropic-messages')
         return {

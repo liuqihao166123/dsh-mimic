@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { transformRequest } from '../core/transform.js';
 import { bridgeResponse } from './response.js';
+import { UsageCollector } from './usage.js';
 const key = Symbol.for('dsh-mimic.transport.v1');
 const shared = globalThis;
 const maxBodyBytes = 16 * 1024 * 1024;
@@ -26,29 +27,95 @@ function errorCode(error) {
         return error.code.slice(0, 80);
     return error instanceof SyntaxError ? 'INVALID_JSON_BODY' : 'REQUEST_TRANSFORM_FAILED';
 }
-const maxUsageChars = 4 * 1024 * 1024;
-async function drainUsage(stream, sink) {
-    const reader = stream.getReader();
-    const decoder = new TextDecoder();
-    let text = '';
+const emptyObservation = (state = 'incomplete') => ({ state, malformed: false, limitExceeded: false });
+function safelyComplete(attempt, observation, outcome) {
     try {
-        for (;;) {
-            const chunk = await reader.read();
-            if (chunk.done)
-                break;
-            if (text.length < maxUsageChars)
-                text += decoder.decode(chunk.value, { stream: true });
-        }
-        if (text.length)
-            sink(text);
+        attempt?.complete(observation, outcome);
     }
-    catch { /* usage accounting must never surface as a request failure */ }
-    finally {
+    catch { /* accounting never fails a generation */ }
+}
+/** Read through the caller's stream: preserve bytes, cancellation and backpressure without a tee queue. */
+function observeResponse(response, result, attempt, signal) {
+    let collector;
+    try {
+        collector = new UsageCollector(result.targetProtocol, response.headers.get('content-type') ?? undefined);
+    }
+    catch {
+        safelyComplete(attempt, { ...emptyObservation(), malformed: true });
+        return response;
+    }
+    let broken = false, finished = false;
+    const finish = (outcome, closing = false) => {
+        if (finished)
+            return;
+        finished = true;
+        signal?.removeEventListener('abort', aborted);
+        let observation;
         try {
-            reader.releaseLock();
+            observation = collector.finish();
         }
-        catch { /* already released by cancel */ }
+        catch {
+            observation = { ...emptyObservation(), malformed: true };
+        }
+        if (broken)
+            observation = { ...observation, malformed: true };
+        safelyComplete(attempt, observation, outcome ?? (!response.ok ? 'http-error' : closing && !collector.terminal ? 'cancelled' : undefined));
+    };
+    const aborted = () => finish('cancelled');
+    if (signal?.aborted)
+        aborted();
+    else
+        signal?.addEventListener('abort', aborted, { once: true });
+    if (!response.body) {
+        finish();
+        return response;
     }
+    const reader = response.body.getReader();
+    const body = new ReadableStream({
+        async pull(controller) {
+            try {
+                const chunk = await reader.read();
+                if (chunk.done) {
+                    finish();
+                    reader.releaseLock();
+                    controller.close();
+                    return;
+                }
+                if (!finished && !broken) {
+                    try {
+                        collector.push(chunk.value);
+                    }
+                    catch {
+                        broken = true;
+                    }
+                }
+                controller.enqueue(chunk.value);
+            }
+            catch (error) {
+                finish(signal?.aborted || error instanceof Error && error.name === 'AbortError' ? 'cancelled' : 'stream-error');
+                try {
+                    reader.releaseLock();
+                }
+                catch { /* the native reader may already have released */ }
+                controller.error(error);
+            }
+        },
+        async cancel(reason) {
+            // The existing protocol bridge cancels its reader after a terminal event.
+            // Preserve that outcome; only an unfinished caller cancellation is cancelled.
+            finish(undefined, true);
+            try {
+                await reader.cancel(reason);
+            }
+            finally {
+                try {
+                    reader.releaseLock();
+                }
+                catch { /* already released */ }
+            }
+        },
+    }, { highWaterMark: 0 });
+    return new Response(body, { status: response.status, statusText: response.statusText, headers: response.headers });
 }
 async function intercept(registry, scope, input, init) {
     const request = input instanceof Request ? input : undefined;
@@ -67,6 +134,7 @@ async function intercept(registry, scope, input, init) {
     if (scope.rule.client === 'none' || scope.rule.modelIds?.length && !scope.rule.modelIds.includes(scope.identity.modelId))
         return registry.original(input, init);
     let entry;
+    let attempt;
     try {
         let raw;
         if (typeof init?.body === 'string')
@@ -99,18 +167,17 @@ async function intercept(registry, scope, input, init) {
         result.headers.delete('content-length');
         result.headers.delete('transfer-encoding');
         entry = scope.record(result, context);
+        try {
+            attempt = scope.observe?.(result, context);
+        }
+        catch { /* diagnostic failures are isolated */ }
         const response = await registry.original(result.url, outgoing);
         if (entry)
             entry.status = response.status;
-        // Tee the reply so cache counters can be read without delaying or altering the caller's stream.
-        if (scope.usage && response.ok && response.body) {
-            const [caller, tap] = response.body.tee();
-            void drainUsage(tap, scope.usage);
-            return bridgeResponse(new Response(caller, { status: response.status, statusText: response.statusText, headers: response.headers }), result);
-        }
-        return bridgeResponse(response, result);
+        return bridgeResponse(attempt ? observeResponse(response, result, attempt, outgoing.signal) : response, result);
     }
     catch (error) {
+        safelyComplete(attempt, emptyObservation('failed'), init?.signal?.aborted || request?.signal.aborted || error instanceof Error && error.name === 'AbortError' ? 'cancelled' : 'stream-error');
         const code = errorCode(error);
         if (entry)
             entry.error = code;

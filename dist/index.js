@@ -6,6 +6,7 @@ import { PanelController, createApiHandler } from './host/api.js';
 import { RequestListener } from './host/listener.js';
 import { ProviderLimiter } from './host/limiter.js';
 import { CacheMetrics } from './host/metrics.js';
+import { PrefixDiagnostics } from './host/diagnostics.js';
 import { installTransport } from './host/transport.js';
 export const name = PLUGIN_NAME;
 export const inject = ['settings', 'llm', 'webServer'];
@@ -26,6 +27,7 @@ export function apply(ctx, options = {}) {
         listener.configure(store.snapshot().listener);
         const limiter = new ProviderLimiter();
         const metrics = new CacheMetrics();
+        const diagnostics = new PrefixDiagnostics();
         let transport = 'waiting';
         let detail = '等待请求传输拦截器。';
         let registrations = () => 0;
@@ -35,7 +37,11 @@ export function apply(ctx, options = {}) {
             const usage = limiter.usage(providerId);
             return { providerId, limit: rule.concurrency ?? 0, active: usage.active, queued: usage.queued };
         });
-        const controller = new PanelController(store, llm, settings, listener, () => ({ transport, detail, registrations: registrations(), concurrency: concurrencyStats(), cache: metrics.snapshot() }));
+        const controller = new PanelController(store, llm, settings, listener, () => ({ transport, detail, registrations: registrations(), concurrency: concurrencyStats(), cache: metrics.snapshot(), cacheReport: metrics.report(), cacheDiagnostics: diagnostics.snapshot() }), {
+            resetCache: providerId => metrics.clear(providerId),
+            diagnostics: enabled => diagnostics.setEnabled(enabled),
+            clearDiagnostics: providerId => diagnostics.clear(providerId),
+        });
         child.effect(() => settings.configure({ auto: false }, ctx.fiber));
         child.effect(() => webServer.register({ kind: 'exact', path: API_PATH, handler: createApiHandler(controller) }));
         child.effect(() => {
@@ -61,9 +67,42 @@ export function apply(ctx, options = {}) {
                 const modelId = typeof request.model === 'string' ? request.model : '';
                 if (rule.modelIds?.length && !rule.modelIds.includes(modelId))
                     return lease.bypass(next);
+                const sessionSource = typeof request.sessionId === 'string' ? 'host' : 'fallback';
+                const purpose = typeof request.purpose === 'string' ? request.purpose : undefined;
                 const factory = () => rule.client === 'none'
                     ? lease.bypass(next)
-                    : lease.bind({ identity: { providerId: request.provider, modelId, sessionId: typeof request.sessionId === 'string' ? request.sessionId : randomUUID(), requestId: randomUUID() }, rule: structuredClone(rule), deviceId: config.identity.deviceId, accountId: config.identity.accountId, record: (result, context) => listener.record(result, context), usage: text => metrics.ingest(request.provider, text), onError: code => { detail = '最近一次请求变换错误：' + code; } }, next);
+                    : lease.bind({
+                        identity: { providerId: request.provider, modelId, sessionId: typeof request.sessionId === 'string' ? request.sessionId : randomUUID(), requestId: randomUUID() },
+                        rule: structuredClone(rule), deviceId: config.identity.deviceId, accountId: config.identity.accountId,
+                        record: (result, context) => listener.record(result, context),
+                        observe: (result, context) => {
+                            const ticket = metrics.begin({ providerId: context.identity.providerId,
+                                modelId: typeof result.body.model === 'string' ? result.body.model : context.identity.modelId,
+                                profile: result.profile, protocol: result.targetProtocol,
+                                sessionTag: diagnostics.sessionTag(context.identity.sessionId), sessionSource,
+                                operationTag: diagnostics.sessionTag('operation:' + context.identity.requestId), purpose });
+                            let entry;
+                            try {
+                                entry = diagnostics.observe(result, context, { sessionSource, purpose });
+                            }
+                            catch {
+                                entry = undefined;
+                            }
+                            return { complete: (observation, outcome) => {
+                                    ticket.complete(observation, outcome);
+                                    if (entry) {
+                                        const sample = observation.sample;
+                                        const valid = sample && Number.isSafeInteger(sample.prompt) && sample.prompt >= 0 && Number.isSafeInteger(sample.cached) && sample.cached >= 0
+                                            && Number.isSafeInteger(sample.written) && sample.written >= 0 && sample.cached <= sample.prompt && sample.written <= sample.prompt - sample.cached
+                                            && !observation.malformed && !observation.limitExceeded;
+                                        diagnostics.complete(entry.id, { outcome: outcome ?? (observation.state === 'complete' ? 'success' : observation.state === 'failed' ? 'stream-error' : observation.state),
+                                            ...(sample && valid ? { promptTokens: sample.prompt, cachedTokens: sample.cached, writtenTokens: sample.written, cacheReported: sample.cacheReported,
+                                                hitRate: sample.cacheReported && sample.prompt > 0 ? sample.cached / sample.prompt : null } : {}) });
+                                    }
+                                } };
+                        },
+                        onError: code => { detail = '最近一次请求变换错误：' + code; },
+                    }, next);
                 // A supplier-level cap queues (or rejects) generation streams instead of letting them burst upstream.
                 return limit > 0 ? limiter.wrap(request.provider, limit, rule.concurrencyMode ?? 'queue', factory) : factory();
             }, { global: true });
@@ -77,7 +116,7 @@ export function apply(ctx, options = {}) {
                     detail = '插件配置正在重新加载。';
                 }
             });
-            return () => { stopSettings(); stop(); lease.release(); limiter.clear(); metrics.clear(); listener.clear(); transport = 'waiting'; };
+            return () => { stopSettings(); stop(); lease.release(); limiter.clear(); metrics.clear(); diagnostics.clear(); listener.clear(); transport = 'waiting'; };
         });
     });
 }

@@ -1,4 +1,5 @@
 import { API_PATH } from '../types.js';
+import { projectCacheDiagnostics, projectCacheReport, validCacheDiagnostics, validCacheReport } from './cache-model.js';
 import type { ClientKind, Json, ListenerEntry, PanelState, ProfileOverrides, ProviderInfo, ProviderRule } from '../types.js';
 
 export type ProfileInfo = PanelState['profiles'][number];
@@ -27,7 +28,10 @@ export type PanelApiRequest =
   | { action: 'save'; providerId: string; rule: ProviderRule; revision: number }
   | { action: 'listener'; enabled: boolean; revision: number }
   | { action: 'logs' }
-  | { action: 'clear' };
+  | { action: 'clear' }
+  | { action: 'cache-reset'; providerId?: string }
+  | { action: 'cache-diagnostics'; enabled: boolean }
+  | { action: 'cache-diagnostics-clear'; providerId?: string };
 export interface PanelApiReply { state?: PublicPanelState; entries?: ListenerEntry[] }
 export interface PanelApi { call(request: PanelApiRequest, signal?: AbortSignal): Promise<PanelApiReply> }
 export type FetchLike = (path: string, options: RequestInit) => Promise<Pick<Response, 'ok' | 'status' | 'json'>>;
@@ -232,7 +236,9 @@ export function projectPanelState(state: PanelState | PublicPanelState): PublicP
       listener: { enabled: state.config.listener.enabled, maxEntries: state.config.listener.maxEntries } },
     runtime: { transport: state.runtime.transport, registrations: state.runtime.registrations, detail: redactText(state.runtime.detail),
       ...(state.runtime.concurrency ? { concurrency: state.runtime.concurrency.map(item => ({ providerId: item.providerId, limit: item.limit, active: item.active, queued: item.queued })) } : {}),
-      ...(state.runtime.cache ? { cache: state.runtime.cache.map(item => ({ providerId: item.providerId, requests: item.requests, promptTokens: item.promptTokens, cachedTokens: item.cachedTokens, hitRate: item.hitRate })) } : {}) },
+      ...(state.runtime.cache ? { cache: state.runtime.cache.map(item => ({ providerId: item.providerId, requests: item.requests, promptTokens: item.promptTokens, cachedTokens: item.cachedTokens, hitRate: item.hitRate })) } : {}),
+      ...(state.runtime.cacheReport ? { cacheReport: projectCacheReport(state.runtime.cacheReport) } : {}),
+      ...(state.runtime.cacheDiagnostics ? { cacheDiagnostics: projectCacheDiagnostics(state.runtime.cacheDiagnostics) } : {}) },
     profiles: state.profiles.map(profile => ({ id: profile.id, client: profile.client, version: profile.version,
       label: profile.label, evidence: redactText(profile.evidence) })),
     entries: state.entries.map(redactListenerEntry),
@@ -372,7 +378,8 @@ function validPanelState(value: unknown): value is PanelState {
     || !Number.isSafeInteger(config.listener.maxEntries) || Number(config.listener.maxEntries) < 0
     || !['active', 'waiting', 'unsupported'].includes(String(value.runtime.transport))
     || typeof value.runtime.detail !== 'string' || !Number.isSafeInteger(value.runtime.registrations)
-    || !validConcurrencyStats(value.runtime.concurrency) || !validCacheStats(value.runtime.cache)) return false;
+    || !validConcurrencyStats(value.runtime.concurrency) || !validCacheStats(value.runtime.cache)
+    || !validCacheReport(value.runtime.cacheReport) || !validCacheDiagnostics(value.runtime.cacheDiagnostics)) return false;
   return Object.values(config.providers).every(rule => isObject(rule) && ['none', 'claude-code', 'codex'].includes(String(rule.client))
     && (rule.profile === undefined || typeof rule.profile === 'string')
     && (rule.modelIds === undefined || stringList(rule.modelIds))
@@ -412,7 +419,7 @@ export function createPanelApi(fetcher?: FetchLike): PanelApi {
       }
       reply.entries = payload.entries.map(redactListenerEntry);
     }
-    if (request.action === 'state' || request.action === 'save' || request.action === 'listener') {
+    if (request.action === 'state' || request.action === 'save' || request.action === 'listener' || request.action === 'cache-reset' || request.action === 'cache-diagnostics' || request.action === 'cache-diagnostics-clear') {
       if (!reply.state) throw new PanelRpcError('服务未返回最新配置状态。', 'INVALID_RESPONSE', response.status);
     } else if (request.action === 'logs' && !reply.state && !reply.entries) {
       throw new PanelRpcError('服务未返回监听记录。', 'INVALID_RESPONSE', response.status);

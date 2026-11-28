@@ -33,6 +33,208 @@ exports.LOGO_DATA_URI = svgDataUri(COLOR_LOGO_SVG);
 exports.MONO_LOGO_DATA_URI = svgDataUri(MONO_LOGO_SVG);
 
 },
+"/client/cache-model.js": function(require,module,exports) {
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.PREFIX_CHANGE_LABELS = exports.COUNTER_KEYS = void 0;
+exports.validCacheReport = validCacheReport;
+exports.validCacheDiagnostics = validCacheDiagnostics;
+exports.projectCounters = projectCounters;
+exports.projectCacheReport = projectCacheReport;
+exports.projectCacheDiagnostics = projectCacheDiagnostics;
+exports.combineCounters = combineCounters;
+exports.COUNTER_KEYS = ['requests', 'success', 'failed', 'cancelled', 'incomplete', 'coldRequests', 'fallbackRequests', 'retryRequests',
+    'usageRequests', 'cacheReportedRequests', 'missingUsageRequests', 'unknownCacheRequests', 'invalidUsageRequests',
+    'promptTokens', 'cachedTokens', 'writtenTokens', 'uncachedTokens', 'knownPromptTokens'];
+const PROTOCOLS = ['anthropic-messages', 'openai-responses', 'openai-chat-completions'];
+const CHANGES = ['cold', 'model', 'profile', 'protocol', 'endpoint', 'cache-key', 'system', 'tools', 'parameters', 'history', 'append', 'unchanged', 'unknown'];
+const OUTCOMES = ['success', 'http-error', 'stream-error', 'cancelled', 'incomplete'];
+const object = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
+const count = (v) => Number.isSafeInteger(v) && Number(v) >= 0;
+const text = (v, max = 512) => typeof v === 'string' && v.length <= max;
+const time = (v) => typeof v === 'string' && v.length <= 40 && Number.isFinite(Date.parse(v));
+const rate = (v) => typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= 1;
+const tag = (v, prefix) => typeof v === 'string' && new RegExp('^' + prefix + '-[a-f0-9]{16,24}$').test(v);
+const safeText = (v) => v.replace(/\bBearer\s+[^\s]+/gi, '[REDACTED]').replace(/\bsk-(?:proj-)?[a-z0-9_-]{6,}/gi, '[REDACTED]');
+function validCounters(v) {
+    return object(v) && exports.COUNTER_KEYS.every(key => count(v[key])) && (v.hitRate === null || rate(v.hitRate)) && rate(v.coverage)
+        && (v.since === undefined || time(v.since)) && (v.lastAt === undefined || time(v.lastAt));
+}
+function validDimension(v) {
+    return object(v) && text(v.modelId) && text(v.profile, 256) && PROTOCOLS.includes(String(v.protocol))
+        && (v.sessionTag === undefined || tag(v.sessionTag, 's')) && (v.sessionSource === undefined || ['host', 'fallback'].includes(String(v.sessionSource)))
+        && (v.purpose === undefined || typeof v.purpose === 'string' && /^[a-z0-9._/-]{1,64}$/i.test(v.purpose))
+        && validCounters(v.counters) && validCounters(v.recent);
+}
+function validCacheReport(v) {
+    return v === undefined || object(v) && time(v.startedAt) && count(v.windowSize) && Number(v.windowSize) >= 1 && Number(v.windowSize) <= 100
+        && Array.isArray(v.providers) && v.providers.length <= 128 && v.providers.every(p => object(p) && text(p.providerId)
+        && validCounters(p.lifetime) && validCounters(p.recent) && (p.latestSessionTag === undefined || tag(p.latestSessionTag, 's'))
+        && Array.isArray(p.sessions) && p.sessions.length <= 64 && p.sessions.every(validDimension)
+        && Array.isArray(p.models) && p.models.length <= 128 && p.models.every(validDimension));
+}
+function validDiagnostic(v) {
+    if (!object(v))
+        return false;
+    return typeof v.id === 'string' && /^d-[a-z0-9-]{1,80}$/.test(v.id) && time(v.time) && text(v.providerId) && text(v.modelId) && text(v.profile, 256)
+        && PROTOCOLS.includes(String(v.protocol)) && tag(v.sessionTag, 's') && ['host', 'fallback'].includes(String(v.sessionSource))
+        && (v.purpose === undefined || typeof v.purpose === 'string' && /^[a-z0-9._/-]{1,64}$/i.test(v.purpose))
+        && count(v.attempt) && (v.cacheKeyTag === undefined || tag(v.cacheKeyTag, 'k')) && CHANGES.includes(String(v.change))
+        && Array.isArray(v.changed) && v.changed.length <= CHANGES.length && v.changed.every(c => CHANGES.includes(String(c)))
+        && ['messages', 'previousMessages', 'sharedMessages'].every(key => count(v[key]))
+        && (v.firstChangedMessage === undefined || count(v.firstChangedMessage) && v.firstChangedMessage >= 1)
+        && typeof v.comparable === 'boolean'
+        && ['system', 'tools', 'parameters'].every(key => object(v[key]) && tag(v[key].tag, 'h') && count(v[key].chars))
+        && (v.outcome === undefined || OUTCOMES.includes(String(v.outcome)))
+        && ['promptTokens', 'cachedTokens', 'writtenTokens'].every(key => v[key] === undefined || count(v[key]))
+        && (v.cacheReported === undefined || typeof v.cacheReported === 'boolean') && (v.hitRate === undefined || v.hitRate === null || rate(v.hitRate));
+}
+function validCacheDiagnostics(v) {
+    return v === undefined || object(v) && typeof v.enabled === 'boolean' && count(v.maxEntries) && Number(v.maxEntries) >= 1 && Number(v.maxEntries) <= 500
+        && count(v.maxSessions) && Number(v.maxSessions) >= 1 && Number(v.maxSessions) <= 256 && v.keyScope === 'runtime'
+        && Array.isArray(v.entries) && v.entries.length <= Number(v.maxEntries) && v.entries.every(validDiagnostic);
+}
+function projectCounters(v) {
+    return { ...Object.fromEntries(exports.COUNTER_KEYS.map(key => [key, v[key]])), hitRate: v.hitRate, coverage: v.coverage,
+        ...(v.since ? { since: v.since } : {}), ...(v.lastAt ? { lastAt: v.lastAt } : {}) };
+}
+function projectDimension(v) {
+    return { modelId: safeText(v.modelId), profile: safeText(v.profile), protocol: v.protocol,
+        ...(v.sessionTag ? { sessionTag: v.sessionTag } : {}), ...(v.sessionSource ? { sessionSource: v.sessionSource } : {}), ...(v.purpose ? { purpose: v.purpose } : {}),
+        counters: projectCounters(v.counters), recent: projectCounters(v.recent) };
+}
+function projectCacheReport(v) {
+    return { startedAt: v.startedAt, windowSize: v.windowSize, providers: v.providers.map(p => ({ providerId: p.providerId,
+            lifetime: projectCounters(p.lifetime), recent: projectCounters(p.recent), ...(p.latestSessionTag ? { latestSessionTag: p.latestSessionTag } : {}),
+            sessions: p.sessions.map(projectDimension), models: p.models.map(projectDimension) })) };
+}
+function projectCacheDiagnostics(v) {
+    return { enabled: v.enabled, maxEntries: v.maxEntries, maxSessions: v.maxSessions, keyScope: 'runtime', entries: v.entries.map(e => ({
+            id: e.id, time: e.time, providerId: e.providerId, modelId: safeText(e.modelId), profile: safeText(e.profile), protocol: e.protocol,
+            sessionTag: e.sessionTag, sessionSource: e.sessionSource, ...(e.purpose ? { purpose: e.purpose } : {}), attempt: e.attempt,
+            ...(e.cacheKeyTag ? { cacheKeyTag: e.cacheKeyTag } : {}), change: e.change, changed: [...e.changed],
+            messages: e.messages, previousMessages: e.previousMessages, sharedMessages: e.sharedMessages, comparable: e.comparable,
+            ...(e.firstChangedMessage !== undefined ? { firstChangedMessage: e.firstChangedMessage } : {}),
+            system: { tag: e.system.tag, chars: e.system.chars }, tools: { tag: e.tools.tag, chars: e.tools.chars }, parameters: { tag: e.parameters.tag, chars: e.parameters.chars },
+            ...(e.outcome ? { outcome: e.outcome } : {}), ...(e.promptTokens !== undefined ? { promptTokens: e.promptTokens } : {}),
+            ...(e.cachedTokens !== undefined ? { cachedTokens: e.cachedTokens } : {}), ...(e.writtenTokens !== undefined ? { writtenTokens: e.writtenTokens } : {}),
+            ...(e.cacheReported !== undefined ? { cacheReported: e.cacheReported } : {}), ...(e.hitRate !== undefined ? { hitRate: e.hitRate } : {}),
+        })) };
+}
+function combineCounters(items) {
+    const result = { ...Object.fromEntries(exports.COUNTER_KEYS.map(key => [key, 0])), hitRate: null, coverage: 0 };
+    for (const item of items) {
+        for (const key of exports.COUNTER_KEYS)
+            result[key] += item[key];
+        if (item.since && (!result.since || item.since < result.since))
+            result.since = item.since;
+        if (item.lastAt && (!result.lastAt || item.lastAt > result.lastAt))
+            result.lastAt = item.lastAt;
+    }
+    result.hitRate = result.knownPromptTokens > 0 ? result.cachedTokens / result.knownPromptTokens : null;
+    result.coverage = result.requests > 0 ? result.cacheReportedRequests / result.requests : 0;
+    return result;
+}
+exports.PREFIX_CHANGE_LABELS = { cold: '首次观测', model: '模型变化', profile: '身份模板变化', protocol: '协议变化', endpoint: '上游地址变化',
+    'cache-key': '缓存键变化', system: '系统指令变化', tools: '工具定义变化', parameters: '请求参数变化', history: '历史消息改写', append: '仅追加消息', unchanged: '前缀保持一致', unknown: '超出比较范围' };
+
+},
+"/client/cache-panel.js": function(require,module,exports) {
+"use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.selectCacheCounters = selectCacheCounters;
+exports.CacheInspector = CacheInspector;
+const React = __importStar(require("react"));
+const cache_model_js_1 = require("./cache-model.js");
+const h = React.createElement;
+const rate = (value) => value == null ? '—' : (value * 100).toFixed(1) + '%';
+const tokens = (value) => value.toLocaleString('zh-CN');
+const dimensionKey = (value) => JSON.stringify([value.modelId, value.profile, value.protocol, value.purpose ?? '']);
+const dimensionLabel = (value) => [value.modelId || '未知模型', value.profile, value.protocol, value.purpose].filter(Boolean).join(' · ');
+function selectCacheCounters(report, view, sessionTag, model) {
+    if (view !== 'session' && !model)
+        return view === 'recent' ? report.recent : report.lifetime;
+    const rows = view === 'session' ? report.sessions.filter(item => item.sessionTag === sessionTag) : report.models;
+    return (0, cache_model_js_1.combineCounters)(rows.filter(item => !model || dimensionKey(item) === model).map(item => view === 'recent' ? item.recent : item.counters));
+}
+function CacheInspector({ state, providerId }) {
+    const [view, setView] = React.useState('recent');
+    const [sessionChoice, setSessionChoice] = React.useState('');
+    const [modelChoice, setModelChoice] = React.useState('');
+    const report = state.runtime.cacheReport;
+    const provider = report?.providers.find(item => item.providerId === providerId);
+    const sessions = [...new Set(provider?.sessions.map(item => item.sessionTag).filter(Boolean) ?? [])];
+    const chosenSession = sessions.includes(sessionChoice) ? sessionChoice : provider?.latestSessionTag ?? sessions[0] ?? '';
+    const model = provider?.models.some(item => dimensionKey(item) === modelChoice) ? modelChoice : '';
+    const counters = provider ? selectCacheCounters(provider, view, chosenSession, model) : (0, cache_model_js_1.combineCounters)([]);
+    const metric = (label, value, detail, accent = false) => h('div', { className: 'pcs-cache-metric' + (accent ? ' pcs-cache-metric-accent' : ''), key: label }, h('span', null, label), h('strong', null, value), h('small', null, detail));
+    return h('article', { className: 'pcs-card pcs-cache-inspector', 'aria-label': '缓存统计' }, h('div', { className: 'pcs-card-head' }, h('div', null, h('div', { className: 'pcs-card-kicker' }, 'CACHE INSIGHTS'), h('h3', null, '缓存统计')), h('span', { className: 'pcs-small pcs-muted' }, '每 5 秒自动更新')), h('div', { className: 'pcs-card-body' }, h('div', { className: 'pcs-cache-filters' }, h('label', null, h('span', null, '统计范围'), h('select', { className: 'pcs-control', 'aria-label': '缓存统计范围', value: view, onChange: (e) => setView(e.currentTarget.value) }, h('option', { value: 'recent' }, '最近 ' + (report?.windowSize ?? 20) + ' 次 HTTP'), h('option', { value: 'lifetime' }, '本次运行累计'), h('option', { value: 'session' }, '指定会话累计'))), h('label', null, h('span', null, '模型 / 身份 / 协议'), h('select', { className: 'pcs-control', 'aria-label': '缓存模型维度', value: model, onChange: (e) => setModelChoice(e.currentTarget.value) }, h('option', { value: '' }, '全部维度'), ...(provider?.models.map(item => h('option', { key: dimensionKey(item), value: dimensionKey(item) }, dimensionLabel(item))) ?? []))), view === 'session' ? h('label', { className: 'pcs-cache-session' }, h('span', null, '会话摘要'), h('select', { className: 'pcs-control pcs-code', 'aria-label': '缓存会话摘要', value: chosenSession, onChange: (e) => setSessionChoice(e.currentTarget.value) }, !sessions.length ? h('option', { value: '' }, '暂无会话') : null, ...sessions.map(tag => h('option', { value: tag, key: tag }, (tag === provider?.latestSessionTag ? '最近活动 · ' : '') + tag)))) : null), h('div', { className: 'pcs-cache-metrics' }, metric('输入 Token 命中率', rate(counters.hitRate), '按已知输入量加权', true), metric('缓存字段覆盖', rate(counters.coverage), counters.cacheReportedRequests + ' / ' + counters.requests + ' 次 HTTP'), metric('HTTP 尝试', String(counters.requests), '成功 ' + counters.success + ' · 失败 ' + counters.failed + ' · 取消 ' + counters.cancelled + ' · 未完整 ' + counters.incomplete), metric('命中 / 已知输入', tokens(counters.cachedTokens) + ' / ' + tokens(counters.knownPromptTokens), '写入 ' + tokens(counters.writtenTokens) + ' · 已报输入 ' + tokens(counters.promptTokens))), h('p', { className: 'pcs-help pcs-cache-explanation', title: '命中率 = 缓存读取 Token / 已明确报告缓存字段的总输入 Token；Claude 总输入含普通输入、缓存读取和写入。' }, '缺少缓存字段显示未知；明确返回 0 才计零命中。'), h('div', { className: 'pcs-cache-flags' }, ...[['缺 usage', counters.missingUsageRequests], ['字段未知', counters.unknownCacheRequests], ['用量异常', counters.invalidUsageRequests], ['首次观测', counters.coldRequests], ['会话回退', counters.fallbackRequests], ['同轮多次', counters.retryRequests]].map(([label, value]) => h('span', { key: String(label) }, label, h('strong', null, String(value)))))));
+}
+
+},
+"/client/cache-styles.js": function(require,module,exports) {
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.CACHE_CSS = void 0;
+exports.CACHE_CSS = String.raw `
+.pcs-root .pcs-cache-inspector { flex: 1; }
+.pcs-root .pcs-cache-filters { display: grid; grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr); gap: 8px; margin-bottom: 10px; }
+.pcs-root .pcs-cache-filters:has(.pcs-cache-session) { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.pcs-root .pcs-cache-filters > label { display: grid; gap: 5px; min-width: 0; font-size: 11px; font-weight: 600; }
+.pcs-root .pcs-cache-filters .pcs-control { text-overflow: ellipsis; font-weight: 400; }
+.pcs-root .pcs-cache-metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.pcs-root .pcs-cache-metric { display: flex; flex-direction: column; justify-content: center; min-width: 0; min-height: 76px; padding: 9px 11px; border: 1px solid var(--pcs-border); background: var(--pcs-layer); border-radius: 8px; }
+.pcs-root .pcs-cache-metric-accent { background: var(--pcs-soft); border-color: color-mix(in srgb, var(--pcs-brand) 25%, var(--pcs-border)); }
+.pcs-root .pcs-cache-metric > span { color: var(--pcs-muted); font-size: 11px; }
+.pcs-root .pcs-cache-metric > strong { margin: 2px 0; font-size: 24px; line-height: 1.25; font-weight: 650; font-variant-numeric: tabular-nums; letter-spacing: -.03em; overflow-wrap: anywhere; }
+.pcs-root .pcs-cache-metric-accent > strong { color: var(--pcs-brand); }
+.pcs-root .pcs-cache-metric:last-child > strong { font-size: 14px; line-height: 1.6; letter-spacing: -.02em; }
+.pcs-root .pcs-cache-metric > small { color: var(--pcs-muted); font-size: 10px; line-height: 1.5; overflow-wrap: anywhere; }
+.pcs-root .pcs-cache-explanation { margin-top: 8px; }
+.pcs-root .pcs-cache-flags { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
+.pcs-root .pcs-cache-flags > span { display: inline-flex; align-items: center; gap: 5px; padding: 2px 6px; border: 1px solid var(--pcs-border); border-radius: 5px; color: var(--pcs-muted); font-size: 10px; }
+.pcs-root .pcs-cache-flags strong { color: var(--pcs-fg); font-weight: 600; font-variant-numeric: tabular-nums; }
+@container (max-width: 520px) {
+  .pcs-root .pcs-cache-filters, .pcs-root .pcs-cache-filters:has(.pcs-cache-session) { grid-template-columns: minmax(0, 1fr); }
+  .pcs-root .pcs-cache-metric { padding: 10px; }
+  .pcs-root .pcs-cache-metric:last-child > strong { font-size: 13px; }
+}
+`;
+
+},
 "/client/index.js": function(require,module,exports) {
 "use strict";
 var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
@@ -71,6 +273,7 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.inject = exports.name = void 0;
 exports.ProviderClientPanel = ProviderClientPanel;
+exports.ProviderClientPage = ProviderClientPage;
 exports.apply = apply;
 const React = __importStar(require("react"));
 const types_js_1 = require("../types.js");
@@ -78,14 +281,15 @@ const model_js_1 = require("./model.js");
 const slots_js_1 = require("./slots.js");
 const brand_js_1 = require("./brand.js");
 const styles_js_1 = require("./styles.js");
+const cache_styles_js_1 = require("./cache-styles.js");
+const cache_panel_js_1 = require("./cache-panel.js");
 const h = React.createElement;
 const CLIENTS = [
-    { id: 'none', label: '原样请求', short: 'None', description: '不模拟，保持原始请求结构' },
-    { id: 'claude-code', label: 'Claude Code', short: 'Claude', description: 'Anthropic Messages 客户端指纹' },
-    { id: 'codex', label: 'Codex', short: 'Codex', description: 'OpenAI Responses 客户端指纹' },
+    { id: 'none', label: '原样请求', short: 'N', description: '保持原始请求' },
+    { id: 'claude-code', label: 'Claude Code', short: 'C', description: 'Anthropic Messages' },
+    { id: 'codex', label: 'Codex', short: 'C', description: 'OpenAI Responses' },
 ];
 const clientLabel = (client) => CLIENTS.find(item => item.id === client)?.label ?? client;
-const clientShort = (client) => CLIENTS.find(item => item.id === client)?.short ?? client;
 const SidebarIcon = ({ size = 16 }) => h('span', {
     className: 'pcs-sidebar-logo', 'aria-hidden': true,
     style: {
@@ -99,17 +303,6 @@ const SidebarIcon = ({ size = 16 }) => h('span', {
 function Badge(props) {
     return h('span', { className: 'pcs-badge ' + (props.draft ? 'pcs-badge-draft' : 'pcs-badge-saved') }, h('span', { className: 'pcs-badge-dot', 'aria-hidden': true }), props.children);
 }
-function entryTime(time) {
-    const date = new Date(time);
-    return Number.isNaN(date.getTime()) ? time : date.toLocaleString('zh-CN', { hour12: false });
-}
-function formatTokens(value) {
-    if (value >= 1_000_000)
-        return (value / 1_000_000).toFixed(1) + 'm';
-    if (value >= 1000)
-        return (value / 1000).toFixed(1) + 'k';
-    return String(value);
-}
 function statusLabel(transport) {
     return transport === 'active' ? '接入已就绪' : transport === 'waiting' ? '等待接入' : '暂不可用';
 }
@@ -119,7 +312,6 @@ function ProviderClientPanel({ api: providedApi } = {}) {
     const [busy, setBusy] = React.useState(null);
     const [error, setError] = React.useState('');
     const [notice, setNotice] = React.useState('');
-    const [lastRead, setLastRead] = React.useState('');
     const alive = React.useRef(false);
     const sequence = React.useRef(0);
     const pending = React.useRef(false);
@@ -143,25 +335,10 @@ function ProviderClientPanel({ api: providedApi } = {}) {
             const reply = await api.call(request, controller.signal);
             if (!alive.current || ticket !== sequence.current)
                 return;
-            if (operation === 'refresh' || operation === 'save' || operation === 'listener') {
-                if (!reply.state)
-                    throw new Error('服务未返回最新状态。');
-                setSession(previous => (0, model_js_1.reconcileState)(previous, reply.state, savedProviderId));
-                setNotice(operation === 'save' ? '已保存，立即生效。'
-                    : operation === 'listener' ? (reply.state.config.listener.enabled ? '出站请求监听已开启。' : '出站请求监听已关闭。')
-                        : '已读取最新状态。');
-            }
-            else {
-                const entries = reply.entries ?? reply.state?.entries ?? [];
-                setSession(previous => {
-                    if (reply.state)
-                        return { ...(0, model_js_1.reconcileState)(previous, reply.state), revisionStale: previous.revisionStale };
-                    return previous.snapshot ? { ...previous, snapshot: { ...previous.snapshot, entries } } : previous;
-                });
-                if (operation === 'clear')
-                    setNotice('监听记录已清空。');
-            }
-            setLastRead(new Date().toLocaleTimeString('zh-CN', { hour12: false }));
+            if (!reply.state)
+                throw new Error('服务未返回最新状态。');
+            setSession(previous => (0, model_js_1.reconcileState)(previous, reply.state, savedProviderId));
+            setNotice(operation === 'save' ? '已保存，立即生效。' : '已读取最新状态。');
         }
         catch (failure) {
             if (!alive.current || ticket !== sequence.current)
@@ -189,6 +366,25 @@ function ProviderClientPanel({ api: providedApi } = {}) {
         void run('refresh', { action: 'state' });
         return () => { alive.current = false; sequence.current++; pending.current = false; abort.current?.abort(); };
     }, [run]);
+    React.useEffect(() => {
+        let disposed = false, polling = false;
+        let controller;
+        const timer = setInterval(() => {
+            if (polling || pending.current || !current.current.snapshot || document.visibilityState === 'hidden')
+                return;
+            polling = true;
+            const ticket = sequence.current;
+            controller = new AbortController();
+            const timeout = setTimeout(() => controller?.abort(), 4500);
+            void api.call({ action: 'state' }, controller.signal).then(reply => {
+                if (disposed || !alive.current || pending.current || ticket !== sequence.current || !reply.state)
+                    return;
+                // Refresh only runtime so polling preserves the draft, baseline and configuration revision.
+                setSession(previous => previous.snapshot ? { ...previous, snapshot: { ...previous.snapshot, runtime: reply.state.runtime } } : previous);
+            }).catch(() => { }).finally(() => { clearTimeout(timeout); polling = false; });
+        }, 5000);
+        return () => { disposed = true; clearInterval(timer); controller?.abort(); };
+    }, [api]);
     const snapshot = session.snapshot;
     const providers = snapshot ? (0, model_js_1.configuredProviders)(snapshot.providers) : [];
     const selected = providers.find(provider => provider.id === session.selectedProviderId);
@@ -196,7 +392,6 @@ function ProviderClientPanel({ api: providedApi } = {}) {
     const form = draft?.form;
     const dirty = draft ? (0, model_js_1.isDraftDirty)(draft) : false;
     const savedRule = snapshot?.config.providers[session.selectedProviderId];
-    const listenerEnabled = snapshot?.config.listener.enabled ?? false;
     const transportActive = snapshot?.runtime.transport === 'active';
     const simulating = snapshot ? (0, model_js_1.simulatingRules)(snapshot, providers) : [];
     const blocked = busy !== null;
@@ -225,48 +420,32 @@ function ProviderClientPanel({ api: providedApi } = {}) {
     };
     const button = (text, onClick, options = {}) => h('button', { type: 'button', className: 'pcs-button' + (options.primary ? ' pcs-button-primary' : '') + (options.className ? ' ' + options.className : ''),
         onClick, disabled: blocked || options.disabled }, text);
-    const providerField = form ? h('div', { className: 'pcs-field' }, h('label', { className: 'pcs-field-label', htmlFor: fieldId + '-provider' }, h('span', { className: 'pcs-label-main' }, h('span', { className: 'pcs-field-step', 'aria-hidden': true }, '01'), '供应商'), selected ? h('span', { className: 'pcs-label-aside' }, selected.modelIds.length + ' 个模型') : null), h('select', {
-        id: fieldId + '-provider', className: 'pcs-control', value: session.selectedProviderId,
-        onChange: (event) => chooseProvider(event.currentTarget.value),
-    }, !selected && session.selectedProviderId ? h('option', { value: session.selectedProviderId, disabled: true }, '供应商已移除') : null, ...providers.map(provider => h('option', { key: provider.id, value: provider.id }, provider.label))), h('p', { className: 'pcs-help' }, selected ? selected.adapter + ' · ' + (selected.protocol ?? '自动识别') + ' · 已配置 ' + selected.modelIds.length + ' 个模型' : '此供应商已从 DSH 配置移除。')) : null;
-    const clientField = form ? h('div', { className: 'pcs-field' }, h('div', { className: 'pcs-field-label', id: fieldId + '-client-label' }, h('span', { className: 'pcs-label-main' }, h('span', { className: 'pcs-field-step', 'aria-hidden': true }, '02'), '客户端身份'), h('span', { className: 'pcs-label-aside' }, '头 + 体同步')), h('div', { className: 'pcs-clients', role: 'radiogroup', 'aria-labelledby': fieldId + '-client-label' }, ...CLIENTS.map(client => h('label', { key: client.id, className: 'pcs-client' }, h('input', {
-        type: 'radio', name: fieldId + '-client', value: client.id, checked: form.client === client.id,
-        onChange: () => patch((0, model_js_1.setDraftClient)(form, client.id, snapshot?.profiles ?? [])),
-    }), h('span', { className: 'pcs-client-copy' }, h('span', { className: 'pcs-client-topline' }, h('span', { className: 'pcs-client-mark' }, client.short.slice(0, 1)), h('span', { className: 'pcs-client-name' }, client.label)), h('span', { className: 'pcs-client-description' }, client.description))))), h('p', { className: 'pcs-help' }, '保存后，其他供应商会自动恢复为原样请求。')) : null;
     const concurrencyStat = snapshot?.runtime.concurrency?.find(item => item.providerId === session.selectedProviderId);
-    const cacheStat = snapshot?.runtime.cache?.find(item => item.providerId === session.selectedProviderId);
-    const cacheLine = snapshot && session.selectedProviderId
-        ? (cacheStat && cacheStat.requests > 0
-            ? h('p', { className: 'pcs-cache' }, '缓存命中 ', h('strong', null, (cacheStat.hitRate * 100).toFixed(1) + '%'), ' · 最近 ' + cacheStat.requests + ' 次 · 输入 ' + formatTokens(cacheStat.promptTokens) + ' / 命中 ' + formatTokens(cacheStat.cachedTokens))
-            : h('p', { className: 'pcs-cache' }, '缓存命中 ', h('strong', null, '—'), ' · 等待下一次经过该供应商的请求'))
-        : null;
-    const concurrencyField = form ? h('div', { className: 'pcs-field pcs-field-compact' }, h('label', { className: 'pcs-field-label', htmlFor: fieldId + '-concurrency' }, h('span', { className: 'pcs-label-main' }, h('span', { className: 'pcs-field-step', 'aria-hidden': true }, '03'), '并发上限'), h('span', { className: 'pcs-label-aside' }, '0 = 不限制')), h('div', { className: 'pcs-inline-controls' }, h('input', {
-        id: fieldId + '-concurrency', className: 'pcs-control pcs-number', type: 'number', inputMode: 'numeric',
+    const editor = form ? h('article', { className: 'pcs-card pcs-editor', 'aria-labelledby': fieldId + '-editor' }, h('div', { className: 'pcs-card-head' }, h('div', null, h('div', { className: 'pcs-card-kicker' }, 'CONFIGURATION'), h('h3', { id: fieldId + '-editor' }, '模拟设置')), h(Badge, { draft: dirty, children: dirty ? '未保存' : savedRule && savedRule.client !== 'none' ? '已生效' : '未启用' })), h('div', { className: 'pcs-card-body' }, h('fieldset', { className: 'pcs-fieldset', disabled: blocked }, h('div', { className: 'pcs-field' }, h('label', { className: 'pcs-field-label', htmlFor: fieldId + '-provider' }, '供应商', selected ? h('span', { className: 'pcs-label-aside' }, selected.modelIds.length + ' 个模型') : null), h('select', { id: fieldId + '-provider', className: 'pcs-control', value: session.selectedProviderId,
+        onChange: (event) => chooseProvider(event.currentTarget.value) }, !selected && session.selectedProviderId ? h('option', { value: session.selectedProviderId, disabled: true }, '供应商已移除') : null, ...providers.map(provider => h('option', { key: provider.id, value: provider.id }, provider.label))), h('p', { className: 'pcs-help pcs-provider-detail' }, selected ? selected.adapter + ' · ' + (selected.protocol ?? '自动识别') : '此供应商已从 DSH 配置移除。')), h('div', { className: 'pcs-field' }, h('div', { className: 'pcs-field-label', id: fieldId + '-client-label' }, '客户端身份', h('span', { className: 'pcs-label-aside' }, '请求头与请求体同步')), h('div', { className: 'pcs-clients', role: 'radiogroup', 'aria-labelledby': fieldId + '-client-label' }, ...CLIENTS.map(client => h('label', { key: client.id, className: 'pcs-client' }, h('input', { type: 'radio', name: fieldId + '-client', value: client.id, checked: form.client === client.id,
+        onChange: () => patch((0, model_js_1.setDraftClient)(form, client.id, snapshot?.profiles ?? [])) }), h('span', { className: 'pcs-client-copy' }, h('span', { className: 'pcs-client-name' }, client.label), h('span', { className: 'pcs-client-description' }, client.description))))), h('p', { className: 'pcs-help' }, '保存后，其他供应商自动恢复为原样请求。')), h('div', { className: 'pcs-field' }, h('label', { className: 'pcs-field-label', htmlFor: fieldId + '-concurrency' }, '并发上限', h('span', { className: 'pcs-label-aside' }, '0 = 不限制')), h('div', { className: 'pcs-inline-controls' }, h('input', { id: fieldId + '-concurrency', className: 'pcs-control pcs-number', type: 'number', inputMode: 'numeric',
         min: 0, max: 64, step: 1, value: form.concurrencyText, placeholder: '0',
-        onChange: (event) => patch({ concurrencyText: event.currentTarget.value }),
-    }), h('select', {
-        id: fieldId + '-concurrency-mode', className: 'pcs-control', value: form.concurrencyMode, 'aria-label': '超出并发上限时',
-        onChange: (event) => patch({ concurrencyMode: event.currentTarget.value === 'reject' ? 'reject' : 'queue' }),
-    }, h('option', { value: 'queue' }, '超限排队'), h('option', { value: 'reject' }, '超限报错'))), h('p', { className: 'pcs-help' }, concurrencyStat
-        ? '当前并发 ' + concurrencyStat.active + ' / ' + concurrencyStat.limit + (concurrencyStat.queued ? ' · 排队 ' + concurrencyStat.queued : '')
-        : '限制该供应商同时在途的生成请求数。')) : null;
-    const editor = form && providerField && clientField ? h('article', { className: 'pcs-card pcs-editor', 'aria-labelledby': fieldId + '-editor' }, h('div', { className: 'pcs-card-head' }, h('div', null, h('div', { className: 'pcs-card-kicker' }, 'CONFIGURATION'), h('h3', { id: fieldId + '-editor' }, '模拟设置')), h(Badge, { draft: dirty, children: dirty ? '未保存' : savedRule && savedRule.client !== 'none' ? '已生效' : '未启用' })), h('div', { className: 'pcs-card-body' }, h('fieldset', { className: 'pcs-fieldset', disabled: blocked }, providerField, clientField, concurrencyField)), h('div', { className: 'pcs-actions' }, h('div', { className: 'pcs-action-note' }, h('span', { className: 'pcs-action-indicator ' + (dirty ? 'is-dirty' : '') }), dirty ? '修改尚未应用' : savedRule && savedRule.client !== 'none' ? '正在拦截并转换出站请求' : '选择客户端后保存以启用'), h('div', { className: 'pcs-action-buttons' }, dirty ? button('还原', () => { setError(''); setNotice(''); setSession(model_js_1.restoreSelectedDraft); }, { className: 'pcs-button-quiet' }) : null, button(busy === 'save' ? '保存中…' : '保存更改', save, { primary: true, disabled: !dirty || !selected || session.revisionStale })))) : null;
-    const overview = snapshot ? h('aside', { className: 'pcs-overview' }, h('div', { className: 'pcs-overview-head' }, h('div', { className: 'pcs-card-kicker' }, 'LIVE OVERVIEW'), h('h3', null, '运行概览')), h('div', { className: 'pcs-overview-status ' + (transportActive ? 'is-ready' : 'is-waiting') }, h('span', { className: 'pcs-status-icon', 'aria-hidden': true }, transportActive ? '✓' : '·'), h('div', null, h('strong', null, statusLabel(snapshot.runtime.transport)), h('span', null, snapshot.runtime.detail))), h('div', { className: 'pcs-metric-grid' }, h('div', { className: 'pcs-metric' }, h('span', null, '已连接供应商'), h('strong', null, String(providers.length))), h('div', { className: 'pcs-metric' }, h('span', null, '当前模拟'), h('strong', null, simulating.length ? clientShort(simulating[0].rule.client) : '—')), h('div', { className: 'pcs-metric' }, h('span', null, '监听记录'), h('strong', null, String(snapshot.entries.length))), h('div', { className: 'pcs-metric' }, h('span', null, '注册挂载'), h('strong', null, String(snapshot.runtime.registrations)))), h('div', { className: 'pcs-rule-list' }, h('div', { className: 'pcs-section-caption' }, 'ACTIVE ROUTES'), simulating.length ? simulating.map(({ provider, rule }) => h('button', { type: 'button', key: provider.id, className: 'pcs-route', disabled: blocked, onClick: () => chooseProvider(provider.id) }, h('span', { className: 'pcs-route-mark' }, clientShort(rule.client).slice(0, 1)), h('span', { className: 'pcs-route-copy' }, h('strong', null, provider.label), h('small', null, clientLabel(rule.client))), h('span', { className: 'pcs-route-arrow' }, '→')))
-        : h('p', { className: 'pcs-overview-empty' }, '还没有启用模拟路由。')), h('div', { className: 'pcs-overview-foot' }, h('img', { src: brand_js_1.LOGO_DATA_URI, alt: '', 'aria-hidden': true }), h('span', null, '身份字段在同一请求中原子变换'))) : null;
-    const listener = snapshot ? h('details', { className: 'pcs-card pcs-listener', 'aria-labelledby': fieldId + '-listener' }, h('summary', { id: fieldId + '-listener' }, h('span', { className: 'pcs-summary-icon' }, '◌'), h('span', null, '出站请求监听'), h('span', { className: 'pcs-small pcs-muted' }, '调试 · 脱敏'), h('span', { className: 'pcs-summary-count' }, snapshot.entries.length + ' 条')), h('div', { className: 'pcs-card-body' }, h('div', { className: 'pcs-listener-toolbar' }, h('button', { type: 'button', className: 'pcs-switch', role: 'switch', 'aria-label': '出站请求监听',
-        'aria-checked': listenerEnabled, disabled: blocked || session.revisionStale || (!listenerEnabled && !transportActive),
-        onClick: () => { void run('listener', { action: 'listener', enabled: !listenerEnabled, revision: snapshot.config.revision }); } }, h('span', { className: 'pcs-switch-track', 'aria-hidden': true }, h('span', { className: 'pcs-switch-knob' })), busy === 'listener' ? '更新中…' : listenerEnabled ? '监听中' : '已关闭'), h('span', { className: 'pcs-small pcs-muted' }, '上限 ' + snapshot.config.listener.maxEntries), h('div', { className: 'pcs-action-buttons' }, button(busy === 'logs' ? '读取中…' : '读取记录', () => { void run('logs', { action: 'logs' }); }), button(busy === 'clear' ? '清空中…' : '清空', () => { void run('clear', { action: 'clear' }); }, { disabled: !snapshot.entries.length, className: 'pcs-button-danger' }))), !transportActive ? h('p', { className: 'pcs-help' }, '出站接入尚未就绪：' + snapshot.runtime.detail) : null, snapshot.entries.length ? h('div', { className: 'pcs-log-list' }, ...snapshot.entries.slice().reverse().map(entry => h('details', { key: entry.id, className: 'pcs-log' }, h('summary', null, h('span', { className: 'pcs-log-dot' }), (snapshot.providers.find(provider => provider.id === entry.providerId)?.label ?? '供应商') + ' · ' + entry.modelId + ' · ' + entryTime(entry.time)), h('div', { className: 'pcs-log-content' }, h('div', { className: 'pcs-log-meta' }, h('span', null, clientLabel(entry.client) + ' · ' + entry.profile), h('span', null, entry.protocol + ' → ' + entry.targetProtocol), entry.status !== undefined ? h('span', null, 'HTTP ' + entry.status) : null), h('p', { className: 'pcs-help pcs-code' }, entry.url), entry.error ? h('p', { className: 'pcs-validation' }, entry.error) : null, h('div', { className: 'pcs-log-label' }, '请求头 · 已脱敏'), h('pre', null, JSON.stringify(entry.headers, null, 2)), h('div', { className: 'pcs-log-label' }, '请求体 · 结构与指纹摘要'), h('pre', null, JSON.stringify(entry.body, null, 2))))))
-        : h('p', { className: 'pcs-help' }, listenerEnabled ? '正常使用后点「读取记录」查看实际出站摘要。' : '开启监听后才会记录出站请求。'))) : null;
-    return h('section', { className: 'pcs-root', 'aria-labelledby': fieldId + '-title', 'aria-busy': blocked }, h('style', null, styles_js_1.PANEL_CSS), h('header', { className: 'pcs-hero' }, h('div', { className: 'pcs-brand-lockup' }, h('img', { className: 'pcs-brand-logo', src: brand_js_1.LOGO_DATA_URI, alt: '' }), h('div', null, h('div', { className: 'pcs-eyebrow' }, 'DSH PLUGIN · WIRE IDENTITY'), h('h2', { className: 'pcs-title', id: fieldId + '-title' }, slots_js_1.PANEL_TITLE, h('span', { className: 'pcs-version' }, 'v' + types_js_1.PLUGIN_VERSION)), h('p', { className: 'pcs-subtitle' }, '为指定供应商选择客户端身份，头与体在同一次出站请求中同步生效。'))), h('button', { type: 'button', className: 'pcs-button pcs-refresh', disabled: blocked, onClick: () => { void run('refresh', { action: 'state' }); } }, busy === 'refresh' ? h('span', { className: 'pcs-spin', 'aria-hidden': true }) : h('span', { className: 'pcs-refresh-icon', 'aria-hidden': true }, '↻'), busy === 'refresh' ? '刷新中…' : '刷新')), snapshot ? h('div', { className: 'pcs-current' + (simulating.length ? '' : ' pcs-current-idle') }, h('div', { className: 'pcs-current-heading' }, h('span', { className: 'pcs-live-dot', 'aria-hidden': true }), h('span', null, '当前模拟')), simulating.length
-        ? h('div', { className: 'pcs-current-list' }, ...simulating.map(({ provider, rule }) => h('button', { type: 'button', key: provider.id, className: 'pcs-current-chip', disabled: blocked, 'aria-pressed': provider.id === session.selectedProviderId, onClick: () => chooseProvider(provider.id) }, h('strong', null, provider.label), h('span', null, clientLabel(rule.client) + ' · ' + (rule.profile ?? '默认 profile') + (rule.concurrency ? ' · 并发 ' + rule.concurrency : '')))))
-        : h('span', { className: 'pcs-current-idle-text' }, '未启用 · 选择下方客户端开始模拟')) : null, cacheLine, session.revisionStale ? h('div', { className: 'pcs-banner pcs-banner-warning', role: 'alert' }, h('div', null, h('strong', null, '配置已更新'), h('p', null, '请点刷新后再保存。'))) : null, error ? h('div', { className: 'pcs-banner pcs-banner-error', role: 'alert' }, error) : null, notice ? h('div', { className: 'pcs-banner pcs-banner-success', role: 'status' }, notice) : null, !snapshot ? h('div', { className: 'pcs-empty' }, h('div', { className: 'pcs-empty-logo' }, h('img', { src: brand_js_1.LOGO_DATA_URI, alt: '' })), h('strong', null, busy === 'refresh' ? '正在连接 DSH' : '尚未读取状态'), busy === 'refresh' ? '正在读取当前供应商配置。' : '点右上角刷新重试。') : null, snapshot && !providers.length && !form ? h('div', { className: 'pcs-empty' }, h('div', { className: 'pcs-empty-logo' }, h('img', { src: brand_js_1.LOGO_DATA_URI, alt: '' })), h('strong', null, '尚无已配置供应商'), '先在 DSH 供应商设置里配置模型连接，再刷新此面板。') : null, snapshot && form ? h('div', { className: 'pcs-layout' }, editor, overview) : null, listener, h('p', { className: 'pcs-footer' }, h('span', null, 'dsh-mimic · v' + types_js_1.PLUGIN_VERSION), h('span', null, providers.length + ' 个供应商 · 出站接入 ' + (transportActive ? '已就绪' : '未就绪') + (lastRead ? ' · 最近读取 ' + lastRead : ''))));
+        onChange: (event) => patch({ concurrencyText: event.currentTarget.value }) }), h('select', { id: fieldId + '-concurrency-mode', className: 'pcs-control', value: form.concurrencyMode, 'aria-label': '超出并发上限时',
+        onChange: (event) => patch({ concurrencyMode: event.currentTarget.value === 'reject' ? 'reject' : 'queue' }) }, h('option', { value: 'queue' }, '超限排队'), h('option', { value: 'reject' }, '超限报错')))))), h('div', { className: 'pcs-actions' }, h('span', { className: 'pcs-action-note' }, h('span', { className: 'pcs-action-indicator ' + (dirty ? 'is-dirty' : '') }), dirty ? '修改尚未应用' : '保存即生效'), h('div', { className: 'pcs-action-buttons' }, dirty ? button('还原', () => { setError(''); setNotice(''); setSession(model_js_1.restoreSelectedDraft); }, { className: 'pcs-button-quiet' }) : null, button(busy === 'save' ? '保存中…' : '保存更改', save, { primary: true, disabled: !dirty || !selected || session.revisionStale })))) : null;
+    const overview = snapshot ? h('aside', { className: 'pcs-overview', 'aria-label': '运行概况' }, h('div', { className: 'pcs-overview-status ' + (transportActive ? 'is-ready' : 'is-waiting'), title: snapshot.runtime.detail }, h('span', { className: 'pcs-status-icon', 'aria-hidden': true }, transportActive ? '✓' : '·'), h('div', null, h('span', { className: 'pcs-overview-caption' }, '运行概况'), h('strong', null, statusLabel(snapshot.runtime.transport)))), h('div', { className: 'pcs-metric' }, h('span', null, '已连接供应商'), h('strong', null, String(providers.length))), h('div', { className: 'pcs-metric' }, h('span', null, '当前并发'), h('strong', null, concurrencyStat ? concurrencyStat.active + ' / ' + concurrencyStat.limit : '—')), h('div', { className: 'pcs-metric' }, h('span', null, '注册挂载'), h('strong', null, String(snapshot.runtime.registrations)))) : null;
+    return h('section', { className: 'pcs-root', 'aria-labelledby': fieldId + '-title', 'aria-busy': blocked }, h('style', null, styles_js_1.PANEL_CSS + cache_styles_js_1.CACHE_CSS), h('header', { className: 'pcs-hero' }, h('div', { className: 'pcs-brand-lockup' }, h('img', { className: 'pcs-brand-logo', src: brand_js_1.LOGO_DATA_URI, alt: '' }), h('div', null, h('div', { className: 'pcs-eyebrow' }, 'DSH PLUGIN · WIRE IDENTITY'), h('h2', { className: 'pcs-title', id: fieldId + '-title' }, slots_js_1.PANEL_TITLE, h('span', { className: 'pcs-version' }, 'v' + types_js_1.PLUGIN_VERSION)), h('p', { className: 'pcs-subtitle' }, '供应商配置与缓存表现，一屏掌握。'))), h('div', { className: 'pcs-header-actions' }, notice ? h('span', { className: 'pcs-notice', role: 'status' }, notice) : null, h('button', { type: 'button', className: 'pcs-button pcs-refresh', disabled: blocked, onClick: () => { void run('refresh', { action: 'state' }); } }, busy === 'refresh' ? h('span', { className: 'pcs-spin', 'aria-hidden': true }) : h('span', { 'aria-hidden': true }, '↻'), busy === 'refresh' ? '刷新中…' : '刷新'))), snapshot ? h('div', { className: 'pcs-current' + (simulating.length ? '' : ' pcs-current-idle') }, h('span', { className: 'pcs-current-heading' }, h('span', { className: 'pcs-live-dot', 'aria-hidden': true }), '当前模拟'), simulating.length ? simulating.map(({ provider, rule }) => h('button', { type: 'button', key: provider.id, className: 'pcs-current-chip', disabled: blocked,
+        'aria-pressed': provider.id === session.selectedProviderId, onClick: () => chooseProvider(provider.id) }, h('strong', null, provider.label), h('span', null, clientLabel(rule.client) + ' · ' + (rule.profile ?? '默认 profile') + (rule.concurrency ? ' · 并发 ' + rule.concurrency : ''))))
+        : h('span', { className: 'pcs-muted' }, '未启用 · 选择客户端并保存')) : null, session.revisionStale ? h('div', { className: 'pcs-banner pcs-banner-warning', role: 'alert' }, '配置已更新，请刷新后再保存。') : null, error ? h('div', { className: 'pcs-banner pcs-banner-error', role: 'alert' }, error) : null, !snapshot ? h('div', { className: 'pcs-empty' }, h('strong', null, busy === 'refresh' ? '正在连接 DSH' : '尚未读取状态'), '正在读取供应商配置，请稍候。') : null, snapshot && !providers.length && !form ? h('div', { className: 'pcs-empty' }, h('strong', null, '尚无已配置供应商'), '先在 DSH 供应商设置里配置模型连接，再刷新此面板。') : null, snapshot && form ? h('div', { className: 'pcs-layout' }, editor, h('div', { className: 'pcs-dashboard' }, overview, session.selectedProviderId ? h(cache_panel_js_1.CacheInspector, { key: session.selectedProviderId, state: snapshot, providerId: session.selectedProviderId }) : null)) : null);
+}
+/** The main slot supplies bounded space; overflow remains available on small screens and large text. */
+function ProviderClientPage(props = {}) {
+    return h('div', {
+        className: 'pcs-viewport', role: 'region', 'aria-label': '客户端模拟面板', tabIndex: 0,
+        style: { width: '100%', height: '100%', maxHeight: '100%', minHeight: 0, minWidth: 0, flex: '1 1 0',
+            overflowY: 'auto', overflowX: 'hidden', overscrollBehavior: 'contain' },
+    }, h(ProviderClientPanel, props));
 }
 exports.name = types_js_1.PLUGIN_NAME;
-/** Cordis browser service dependency. */
 exports.inject = [slots_js_1.SLOT_SERVICE_ID];
 function apply(ctx) {
     (0, slots_js_1.registerClientUi)(ctx, {
         panel: () => h(ProviderClientPanel),
+        mainPanel: () => h(ProviderClientPage),
         icon: (owner) => h(SidebarIcon, { size: owner?.size ?? 16 }),
     });
 }
@@ -304,6 +483,7 @@ exports.redactValue = redactValue;
 exports.redactListenerEntry = redactListenerEntry;
 exports.createPanelApi = createPanelApi;
 const types_js_1 = require("../types.js");
+const cache_model_js_1 = require("./cache-model.js");
 exports.EDITABLE_OVERRIDE_KEYS = [
     'version', 'runtimeVersion', 'sdkVersion', 'beta', 'identity', 'originator',
     'metadataFormat', 'extraHeaders',
@@ -554,7 +734,9 @@ function projectPanelState(state) {
             listener: { enabled: state.config.listener.enabled, maxEntries: state.config.listener.maxEntries } },
         runtime: { transport: state.runtime.transport, registrations: state.runtime.registrations, detail: redactText(state.runtime.detail),
             ...(state.runtime.concurrency ? { concurrency: state.runtime.concurrency.map(item => ({ providerId: item.providerId, limit: item.limit, active: item.active, queued: item.queued })) } : {}),
-            ...(state.runtime.cache ? { cache: state.runtime.cache.map(item => ({ providerId: item.providerId, requests: item.requests, promptTokens: item.promptTokens, cachedTokens: item.cachedTokens, hitRate: item.hitRate })) } : {}) },
+            ...(state.runtime.cache ? { cache: state.runtime.cache.map(item => ({ providerId: item.providerId, requests: item.requests, promptTokens: item.promptTokens, cachedTokens: item.cachedTokens, hitRate: item.hitRate })) } : {}),
+            ...(state.runtime.cacheReport ? { cacheReport: (0, cache_model_js_1.projectCacheReport)(state.runtime.cacheReport) } : {}),
+            ...(state.runtime.cacheDiagnostics ? { cacheDiagnostics: (0, cache_model_js_1.projectCacheDiagnostics)(state.runtime.cacheDiagnostics) } : {}) },
         profiles: state.profiles.map(profile => ({ id: profile.id, client: profile.client, version: profile.version,
             label: profile.label, evidence: redactText(profile.evidence) })),
         entries: state.entries.map(redactListenerEntry),
@@ -710,7 +892,8 @@ function validPanelState(value) {
         || !Number.isSafeInteger(config.listener.maxEntries) || Number(config.listener.maxEntries) < 0
         || !['active', 'waiting', 'unsupported'].includes(String(value.runtime.transport))
         || typeof value.runtime.detail !== 'string' || !Number.isSafeInteger(value.runtime.registrations)
-        || !validConcurrencyStats(value.runtime.concurrency) || !validCacheStats(value.runtime.cache))
+        || !validConcurrencyStats(value.runtime.concurrency) || !validCacheStats(value.runtime.cache)
+        || !(0, cache_model_js_1.validCacheReport)(value.runtime.cacheReport) || !(0, cache_model_js_1.validCacheDiagnostics)(value.runtime.cacheDiagnostics))
         return false;
     return Object.values(config.providers).every(rule => isObject(rule) && ['none', 'claude-code', 'codex'].includes(String(rule.client))
         && (rule.profile === undefined || typeof rule.profile === 'string')
@@ -758,7 +941,7 @@ function createPanelApi(fetcher) {
                 }
                 reply.entries = payload.entries.map(redactListenerEntry);
             }
-            if (request.action === 'state' || request.action === 'save' || request.action === 'listener') {
+            if (request.action === 'state' || request.action === 'save' || request.action === 'listener' || request.action === 'cache-reset' || request.action === 'cache-diagnostics' || request.action === 'cache-diagnostics-clear') {
                 if (!reply.state)
                     throw new PanelRpcError('服务未返回最新配置状态。', 'INVALID_RESPONSE', response.status);
             }
@@ -806,7 +989,7 @@ function registerAll(slots, render) {
     }, render.panel));
     slots.inject(exports.MAIN_SLOT_ID, () => slots.register({
         name: exports.MAIN_SLOT_ID, key: exports.PANEL_ID, label: () => exports.PANEL_TITLE,
-    }, render.panel));
+    }, render.mainPanel ?? render.panel));
     slots.inject(exports.SIDEBAR_SLOT_ID, () => slots.register({
         name: exports.SIDEBAR_SLOT_ID, id: exports.PANEL_ID, order: 30, label: () => exports.PANEL_TITLE,
     }, render.icon));
@@ -833,212 +1016,128 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.PANEL_CSS = void 0;
 exports.PANEL_CSS = String.raw `
 .pcs-root {
-  --pcs-fg-fallback: #162d37; --pcs-muted-fallback: #70838d;
-  --pcs-bg-fallback: #fff; --pcs-layer-fallback: #f5f8f9; --pcs-border-fallback: #e3eaed;
-  --pcs-fg: var(--dsw-alias-label-primary, var(--pcs-fg-fallback));
-  --pcs-muted: var(--dsw-alias-label-secondary, var(--pcs-muted-fallback));
-  --pcs-bg: var(--dsw-alias-bg-layer-1, var(--pcs-bg-fallback));
-  --pcs-layer: var(--dsw-alias-bg-layer-2, var(--pcs-layer-fallback));
-  --pcs-border: var(--dsw-alias-border-l1, var(--pcs-border-fallback));
+  --pcs-fg-fallback: #162d37; --pcs-muted-fallback: #70838d; --pcs-bg-fallback: #fff; --pcs-layer-fallback: #f5f8f9; --pcs-border-fallback: #e3eaed;
+  --pcs-fg: var(--dsw-alias-label-primary, var(--pcs-fg-fallback)); --pcs-muted: var(--dsw-alias-label-secondary, var(--pcs-muted-fallback));
+  --pcs-bg: var(--dsw-alias-bg-layer-1, var(--pcs-bg-fallback)); --pcs-layer: var(--dsw-alias-bg-layer-2, var(--pcs-layer-fallback)); --pcs-border: var(--dsw-alias-border-l1, var(--pcs-border-fallback));
   --pcs-brand: #0f8177; --pcs-button-fill: #0d8176; --pcs-warn: #a66a13; --pcs-error: #c04450;
-  --pcs-soft: color-mix(in srgb, var(--pcs-brand) 6%, var(--pcs-bg));
-  --pcs-shadow: 0 4px 20px #173d4910;
-  container-type: inline-size; box-sizing: border-box; width: 100%; max-width: 1200px; margin: 0 auto;
-  padding: 30px 28px 22px; color: var(--pcs-fg); font: 13px/1.6 Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', 'PingFang SC', sans-serif;
+  --pcs-soft: color-mix(in srgb, var(--pcs-brand) 6%, var(--pcs-bg)); --pcs-shadow: 0 3px 16px #173d4909;
+  container-type: inline-size; box-sizing: border-box; width: 100%; max-width: 1400px; margin: 0 auto; padding: 20px 24px;
+  color: var(--pcs-fg); font: 13px/1.5 Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', 'PingFang SC', sans-serif;
   -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
 }
 @media (prefers-color-scheme: dark) {
-  .pcs-root { --pcs-fg-fallback: #e2ebee; --pcs-muted-fallback: #9baeb7; --pcs-bg-fallback: #18272e; --pcs-layer-fallback: #1d3038; --pcs-border-fallback: #33434b; --pcs-brand: #5dc9ba; --pcs-warn: #e8b35b; --pcs-error: #f28d98; --pcs-shadow: 0 4px 20px #00000020; }
+  .pcs-root { --pcs-fg-fallback: #e2ebee; --pcs-muted-fallback: #9baeb7; --pcs-bg-fallback: #18272e; --pcs-layer-fallback: #1d3038; --pcs-border-fallback: #33434b; --pcs-brand: #5dc9ba; --pcs-warn: #e8b35b; --pcs-error: #f28d98; --pcs-shadow: 0 3px 16px #00000020; }
 }
-[data-theme="dark"] .pcs-root, .dark .pcs-root { --pcs-fg-fallback: #e2ebee; --pcs-muted-fallback: #9baeb7; --pcs-bg-fallback: #18272e; --pcs-layer-fallback: #1d3038; --pcs-border-fallback: #33434b; --pcs-brand: #5dc9ba; --pcs-warn: #e8b35b; --pcs-error: #f28d98; --pcs-shadow: 0 4px 20px #00000020; }
-[data-theme="light"] .pcs-root, .light .pcs-root { --pcs-fg-fallback: #162d37; --pcs-muted-fallback: #70838d; --pcs-bg-fallback: #fff; --pcs-layer-fallback: #f5f8f9; --pcs-border-fallback: #e3eaed; --pcs-brand: #0f8177; --pcs-warn: #a66a13; --pcs-error: #c04450; --pcs-shadow: 0 4px 20px #173d4910; }
+[data-theme="dark"] .pcs-root, .dark .pcs-root { --pcs-fg-fallback: #e2ebee; --pcs-muted-fallback: #9baeb7; --pcs-bg-fallback: #18272e; --pcs-layer-fallback: #1d3038; --pcs-border-fallback: #33434b; --pcs-brand: #5dc9ba; --pcs-warn: #e8b35b; --pcs-error: #f28d98; --pcs-shadow: 0 3px 16px #00000020; }
+[data-theme="light"] .pcs-root, .light .pcs-root { --pcs-fg-fallback: #162d37; --pcs-muted-fallback: #70838d; --pcs-bg-fallback: #fff; --pcs-layer-fallback: #f5f8f9; --pcs-border-fallback: #e3eaed; --pcs-brand: #0f8177; --pcs-warn: #a66a13; --pcs-error: #c04450; --pcs-shadow: 0 3px 16px #173d4909; }
 .pcs-root *, .pcs-root *::before, .pcs-root *::after { box-sizing: border-box; }
-.pcs-root button, .pcs-root input, .pcs-root select, .pcs-root textarea { font: inherit; }
+.pcs-root button, .pcs-root input, .pcs-root select { font: inherit; }
 .pcs-root button { cursor: pointer; }
 .pcs-root button:disabled { cursor: default; opacity: .45; }
-.pcs-root :is(button, select, input, summary):focus-visible { outline: 2px solid var(--pcs-brand); outline-offset: 3px; }
-.pcs-root :is(.pcs-listener, .pcs-log) > summary:focus-visible { outline-offset: -3px; }
+.pcs-root :is(button, select, input):focus-visible { outline: 2px solid var(--pcs-brand); outline-offset: 2px; }
 .pcs-root :is(h2, h3, p) { margin: 0; }
-.pcs-root .pcs-hero { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin-bottom: 27px; }
-.pcs-root .pcs-brand-lockup { display: flex; align-items: center; gap: 16px; min-width: 0; }
-.pcs-root .pcs-brand-logo { display: block; width: 60px; height: 60px; flex: 0 0 60px; filter: drop-shadow(0 5px 9px #0f81771a); }
-.pcs-root .pcs-eyebrow { margin-bottom: 5px; color: var(--pcs-brand); font-size: 11px; font-weight: 700; letter-spacing: .17em; line-height: 1.5; }
-.pcs-root .pcs-title { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; font-size: 24px; line-height: 1.4; font-weight: 700; letter-spacing: -.035em; color: var(--pcs-fg); }
-.pcs-root .pcs-version { padding: 2px 7px; border: 1px solid var(--pcs-border); border-radius: 6px; color: var(--pcs-muted); font-size: 11px; letter-spacing: 0; font-weight: 550; line-height: 1.6; background: var(--pcs-bg); }
-.pcs-root .pcs-subtitle { margin-top: 6px; color: var(--pcs-muted); font-size: 12px; line-height: 1.7; }
-.pcs-root .pcs-button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 36px; padding: 7px 14px; border: 1px solid var(--pcs-border); border-radius: 8px; color: var(--pcs-fg); background: var(--pcs-bg); line-height: 1.5; font-size: 13px; font-weight: 550; white-space: nowrap; box-shadow: 0 1px 2px #173d4905; transition: border-color .15s, background .15s, box-shadow .15s; }
-.pcs-root .pcs-button:hover:not(:disabled) { border-color: color-mix(in srgb, var(--pcs-brand) 65%, var(--pcs-border)); background: var(--pcs-soft); }
-.pcs-root .pcs-button-primary { background: var(--pcs-button-fill); border-color: var(--pcs-button-fill); color: #fff; min-width: 104px; box-shadow: 0 3px 7px #0d81761a; }
-.pcs-root .pcs-button-primary:hover:not(:disabled) { background: #096e65; border-color: #096e65; box-shadow: 0 4px 10px #0d81762b; }
-.pcs-root .pcs-button-quiet { border-color: transparent; background: transparent; color: var(--pcs-muted); box-shadow: none; }
-.pcs-root .pcs-button-danger { color: var(--pcs-error); }
-.pcs-root .pcs-refresh { flex: 0 0 auto; min-height: 34px; font-size: 12px; padding: 6px 12px; }
-.pcs-root .pcs-refresh-icon { display: inline-block; font-size: 19px; line-height: 1; font-family: 'Segoe UI Symbol', sans-serif; }
-.pcs-root .pcs-current { display: flex; align-items: center; flex-wrap: wrap; gap: 12px 22px; padding: 14px 18px; border: 1px solid color-mix(in srgb, var(--pcs-brand) 22%, var(--pcs-border)); border-radius: 11px; background: var(--pcs-soft); }
-.pcs-root .pcs-current-heading { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 650; color: var(--pcs-brand); white-space: nowrap; }
-.pcs-root .pcs-live-dot { width: 6px; height: 6px; background: var(--pcs-brand); border-radius: 50%; box-shadow: 0 0 0 4px color-mix(in srgb, var(--pcs-brand) 10%, transparent); }
-.pcs-root .pcs-current-list { display: flex; flex-wrap: wrap; min-width: 0; gap: 7px; }
-.pcs-root .pcs-current-chip { display: inline-flex; align-items: center; flex-wrap: wrap; text-align: left; gap: 4px 11px; max-width: 100%; padding: 0; color: var(--pcs-fg); background: transparent; border: 0; border-radius: 4px; font-size: 12px; overflow-wrap: anywhere; }
-.pcs-root .pcs-current-chip strong { font-size: 13px; font-weight: 650; }
+.pcs-root .pcs-hero { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 16px; }
+.pcs-root .pcs-brand-lockup { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.pcs-root .pcs-brand-logo { display: block; width: 46px; height: 46px; flex: 0 0 46px; }
+.pcs-root .pcs-eyebrow { color: var(--pcs-brand); font-size: 9px; font-weight: 700; letter-spacing: .15em; }
+.pcs-root .pcs-title { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; font-size: 22px; line-height: 1.35; font-weight: 700; letter-spacing: -.03em; }
+.pcs-root .pcs-version { padding: 2px 6px; border: 1px solid var(--pcs-border); border-radius: 5px; color: var(--pcs-muted); font-size: 10px; letter-spacing: 0; font-weight: 500; background: var(--pcs-bg); }
+.pcs-root .pcs-subtitle { color: var(--pcs-muted); font-size: 11px; margin-top: 2px; }
+.pcs-root .pcs-header-actions { display: flex; align-items: center; gap: 12px; }
+.pcs-root .pcs-notice { color: var(--pcs-brand); font-size: 11px; }
+.pcs-root .pcs-button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 34px; padding: 6px 12px; border: 1px solid var(--pcs-border); border-radius: 7px; color: var(--pcs-fg); background: var(--pcs-bg); line-height: 1.5; font-size: 12px; font-weight: 550; white-space: nowrap; transition: border-color .15s, background .15s; }
+.pcs-root .pcs-button:hover:not(:disabled) { border-color: var(--pcs-brand); background: var(--pcs-soft); }
+.pcs-root .pcs-button-primary { color: #fff; background: var(--pcs-button-fill); border-color: var(--pcs-button-fill); min-width: 92px; }
+.pcs-root .pcs-button-primary:hover:not(:disabled) { background: #096e65; border-color: #096e65; }
+.pcs-root .pcs-button-quiet { border-color: transparent; background: transparent; color: var(--pcs-muted); }
+.pcs-root .pcs-current { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 16px; min-height: 38px; margin-bottom: 14px; padding: 9px 13px; border: 1px solid color-mix(in srgb, var(--pcs-brand) 22%, var(--pcs-border)); border-radius: 9px; background: var(--pcs-soft); }
+.pcs-root .pcs-current-heading { display: inline-flex; align-items: center; gap: 7px; color: var(--pcs-brand); font-size: 11px; font-weight: 650; white-space: nowrap; }
+.pcs-root .pcs-live-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--pcs-brand); box-shadow: 0 0 0 3px color-mix(in srgb, var(--pcs-brand) 10%, transparent); }
+.pcs-root .pcs-current-chip { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; min-width: 0; max-width: 100%; padding: 0; border: 0; background: transparent; color: var(--pcs-fg); font-size: 11px; text-align: left; overflow-wrap: anywhere; }
+.pcs-root .pcs-current-chip strong { font-size: 12px; }
 .pcs-root .pcs-current-chip span { color: var(--pcs-muted); }
-.pcs-root .pcs-current-chip:hover:not(:disabled) strong { color: var(--pcs-brand); }
-.pcs-root .pcs-current-idle { background: var(--pcs-layer); border-color: var(--pcs-border); }
-.pcs-root .pcs-current-idle :is(.pcs-current-heading, .pcs-current-idle-text) { color: var(--pcs-muted); font-size: 12px; }
-.pcs-root .pcs-current-idle .pcs-live-dot { background: var(--pcs-muted); box-shadow: none; }
-.pcs-root .pcs-cache { margin: 9px 3px 19px; font-size: 11px; color: var(--pcs-muted); }
-.pcs-root .pcs-cache strong { color: var(--pcs-brand); font-weight: 650; margin-left: 3px; font-variant-numeric: tabular-nums; }
-.pcs-root .pcs-banner { padding: 10px 13px; border: 1px solid var(--pcs-border); border-radius: 8px; margin-bottom: 16px; font-size: 12px; overflow-wrap: anywhere; }
-.pcs-root .pcs-banner-success { color: var(--pcs-brand); border-color: color-mix(in srgb, var(--pcs-brand) 25%, var(--pcs-border)); background: var(--pcs-soft); }
-.pcs-root .pcs-banner-warning { color: var(--pcs-warn); border-color: color-mix(in srgb, var(--pcs-warn) 28%, var(--pcs-border)); background: color-mix(in srgb, var(--pcs-warn) 5%, var(--pcs-bg)); }
-.pcs-root .pcs-banner-error { color: var(--pcs-error); border-color: color-mix(in srgb, var(--pcs-error) 28%, var(--pcs-border)); background: color-mix(in srgb, var(--pcs-error) 5%, var(--pcs-bg)); }
-.pcs-root .pcs-layout { display: grid; grid-template-columns: minmax(0, 1fr) 260px; gap: 20px; align-items: start; }
-.pcs-root .pcs-card { min-width: 0; border: 1px solid var(--pcs-border); border-radius: 13px; background: var(--pcs-bg); overflow: hidden; box-shadow: var(--pcs-shadow); }
-.pcs-root .pcs-card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 20px 24px 18px; border-bottom: 1px solid var(--pcs-border); }
-.pcs-root .pcs-card-kicker { color: var(--pcs-muted); font-size: 10px; line-height: 1.4; font-weight: 650; letter-spacing: .16em; margin-bottom: 5px; }
-.pcs-root :is(.pcs-card-head, .pcs-overview-head) h3 { color: var(--pcs-fg); font-size: 15px; line-height: 1.5; font-weight: 650; letter-spacing: -.01em; }
-.pcs-root .pcs-card-body { padding: 22px 24px; }
-.pcs-root .pcs-badge { display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--pcs-border); border-radius: 999px; padding: 3px 8px; font-size: 11px; line-height: 1.5; white-space: nowrap; }
-.pcs-root .pcs-badge-saved { color: var(--pcs-brand); background: var(--pcs-soft); border-color: color-mix(in srgb, var(--pcs-brand) 21%, var(--pcs-border)); }
-.pcs-root .pcs-badge-draft { color: var(--pcs-warn); background: color-mix(in srgb, var(--pcs-warn) 5%, var(--pcs-bg)); border-color: color-mix(in srgb, var(--pcs-warn) 25%, var(--pcs-border)); }
-.pcs-root .pcs-badge-dot { height: 4px; width: 4px; background: currentColor; border-radius: 50%; }
-.pcs-root .pcs-fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
-.pcs-root .pcs-field { margin-bottom: 25px; min-width: 0; }
+.pcs-root .pcs-current-chip:hover strong { color: var(--pcs-brand); }
+.pcs-root .pcs-current-idle { border-color: var(--pcs-border); background: var(--pcs-layer); }
+.pcs-root .pcs-banner { padding: 8px 12px; border: 1px solid var(--pcs-border); border-radius: 7px; margin-bottom: 12px; font-size: 12px; overflow-wrap: anywhere; }
+.pcs-root .pcs-banner-warning { color: var(--pcs-warn); }
+.pcs-root .pcs-banner-error { color: var(--pcs-error); }
+.pcs-root .pcs-layout { display: grid; grid-template-columns: minmax(300px, .95fr) minmax(350px, 1.3fr); gap: 14px; align-items: stretch; }
+.pcs-root .pcs-dashboard { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.pcs-root .pcs-card { min-width: 0; border: 1px solid var(--pcs-border); border-radius: 11px; background: var(--pcs-bg); overflow: hidden; box-shadow: var(--pcs-shadow); }
+.pcs-root .pcs-card-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--pcs-border); }
+.pcs-root .pcs-card-kicker { color: var(--pcs-muted); font-size: 9px; line-height: 1.3; font-weight: 650; letter-spacing: .13em; margin-bottom: 3px; }
+.pcs-root .pcs-card-head h3 { font-size: 15px; line-height: 1.4; font-weight: 650; }
+.pcs-root .pcs-card-body { padding: 14px 16px; }
+.pcs-root .pcs-badge { display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--pcs-border); border-radius: 999px; padding: 3px 7px; font-size: 10px; white-space: nowrap; }
+.pcs-root .pcs-badge-saved { color: var(--pcs-brand); background: var(--pcs-soft); border-color: color-mix(in srgb, var(--pcs-brand) 20%, var(--pcs-border)); }
+.pcs-root .pcs-badge-draft { color: var(--pcs-warn); }
+.pcs-root .pcs-badge-dot { width: 4px; height: 4px; border-radius: 50%; background: currentColor; }
+.pcs-root .pcs-editor { display: flex; flex-direction: column; }
+.pcs-root .pcs-editor > .pcs-card-body { flex: 1; display: flex; align-items: center; }
+.pcs-root .pcs-fieldset { width: 100%; min-width: 0; margin: 0; padding: 0; border: 0; }
+.pcs-root .pcs-field { min-width: 0; margin-bottom: 18px; }
 .pcs-root .pcs-field:last-child { margin-bottom: 0; }
-.pcs-root .pcs-field-label { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; color: var(--pcs-fg); margin-bottom: 9px; font-size: 13px; font-weight: 600; }
-.pcs-root .pcs-label-main { display: inline-flex; align-items: center; gap: 9px; }
-.pcs-root .pcs-field-step { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 6px; background: var(--pcs-layer); color: var(--pcs-brand); border: 1px solid var(--pcs-border); font-size: 11px; font-weight: 650; font-variant-numeric: tabular-nums; }
-.pcs-root .pcs-label-aside { color: var(--pcs-muted); font-size: 11px; font-weight: 400; }
-.pcs-root .pcs-control { display: block; width: 100%; min-width: 0; min-height: 42px; padding: 9px 12px; background: var(--pcs-layer); color: var(--pcs-fg); border: 1px solid var(--pcs-border); border-radius: 8px; font-size: 13px; line-height: 1.6; outline: 0; transition: border-color .15s, box-shadow .15s; }
-.pcs-root .pcs-control:focus { border-color: var(--pcs-brand); box-shadow: 0 0 0 3px color-mix(in srgb, var(--pcs-brand) 8%, transparent); }
-.pcs-root select.pcs-control { padding-right: 30px; text-overflow: ellipsis; }
+.pcs-root .pcs-field-label { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 6px; margin-bottom: 7px; color: var(--pcs-fg); font-size: 12px; font-weight: 600; }
+.pcs-root .pcs-label-aside { color: var(--pcs-muted); font-size: 10px; font-weight: 400; }
+.pcs-root .pcs-control { display: block; width: 100%; min-width: 0; min-height: 36px; padding: 7px 10px; border: 1px solid var(--pcs-border); border-radius: 7px; background: var(--pcs-layer); color: var(--pcs-fg); font-size: 12px; line-height: 1.5; }
+.pcs-root .pcs-control:focus { border-color: var(--pcs-brand); }
+.pcs-root select.pcs-control { padding-right: 24px; text-overflow: ellipsis; }
 .pcs-root .pcs-control:disabled { opacity: .65; }
-.pcs-root .pcs-help { margin-top: 7px; font-size: 11px; color: var(--pcs-muted); line-height: 1.75; overflow-wrap: anywhere; }
-.pcs-root .pcs-clients { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; }
-.pcs-root .pcs-client { position: relative; display: block; min-width: 0; padding: 15px 12px 13px; color: var(--pcs-fg); background: var(--pcs-bg); border: 1px solid var(--pcs-border); border-radius: 9px; cursor: pointer; transition: background .15s, border-color .15s, box-shadow .15s; }
-.pcs-root .pcs-client:hover { border-color: color-mix(in srgb, var(--pcs-brand) 55%, var(--pcs-border)); }
-.pcs-root .pcs-client:has(input:checked) { border-color: var(--pcs-brand); background: var(--pcs-soft); box-shadow: 0 0 0 1px color-mix(in srgb, var(--pcs-brand) 10%, transparent); }
-.pcs-root .pcs-client input { position: absolute; top: 13px; right: 11px; width: 12px; height: 12px; margin: 0; accent-color: var(--pcs-brand); }
-.pcs-root .pcs-client:has(input:focus-visible) { outline: 2px solid var(--pcs-brand); outline-offset: 3px; }
-.pcs-root .pcs-client:has(input:disabled) { cursor: default; opacity: .6; }
-.pcs-root .pcs-client-copy { display: block; min-width: 0; }
-.pcs-root .pcs-client-topline { display: flex; flex-direction: column; gap: 10px; }
-.pcs-root .pcs-client-mark { display: inline-flex; align-items: center; justify-content: center; width: 27px; height: 27px; color: var(--pcs-muted); background: var(--pcs-layer); border: 1px solid var(--pcs-border); border-radius: 7px; font-size: 13px; font-weight: 700; }
-.pcs-root .pcs-client:has(input:checked) .pcs-client-mark { background: var(--pcs-button-fill); border-color: var(--pcs-button-fill); color: #fff; }
-.pcs-root .pcs-client-name { font-size: 12px; font-weight: 650; }
-.pcs-root .pcs-client-description { display: block; margin-top: 4px; color: var(--pcs-muted); font-size: 11px; line-height: 1.7; }
-.pcs-root .pcs-inline-controls { display: grid; grid-template-columns: 108px minmax(0, 1fr); gap: 10px; }
-.pcs-root .pcs-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; border-top: 1px solid var(--pcs-border); background: var(--pcs-layer); padding: 15px 24px; }
-.pcs-root .pcs-action-note { display: flex; align-items: center; gap: 6px; color: var(--pcs-muted); font-size: 11px; line-height: 1.5; }
-.pcs-root .pcs-action-indicator { display: inline-block; flex: 0 0 5px; width: 5px; height: 5px; background: var(--pcs-brand); border-radius: 50%; }
+.pcs-root .pcs-help { margin-top: 6px; color: var(--pcs-muted); font-size: 10px; line-height: 1.6; overflow-wrap: anywhere; }
+.pcs-root .pcs-provider-detail { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pcs-root .pcs-clients { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; }
+.pcs-root .pcs-client { position: relative; display: flex; align-items: center; min-width: 0; min-height: 72px; padding: 12px 9px; border: 1px solid var(--pcs-border); border-radius: 8px; background: var(--pcs-bg); cursor: pointer; }
+.pcs-root .pcs-client:hover { border-color: var(--pcs-brand); }
+.pcs-root .pcs-client:has(input:checked) { border-color: var(--pcs-brand); background: var(--pcs-soft); }
+.pcs-root .pcs-client input { position: absolute; top: 8px; right: 7px; width: 10px; height: 10px; margin: 0; accent-color: var(--pcs-brand); }
+.pcs-root .pcs-client:has(input:focus-visible) { outline: 2px solid var(--pcs-brand); outline-offset: 2px; }
+.pcs-root .pcs-client:has(input:disabled) { opacity: .6; cursor: default; }
+.pcs-root .pcs-client-copy { display: block; min-width: 0; padding-top: 4px; }
+.pcs-root .pcs-client-name { display: block; font-size: 11px; line-height: 1.5; font-weight: 650; }
+.pcs-root .pcs-client-description { display: block; margin-top: 3px; color: var(--pcs-muted); font-size: 10px; line-height: 1.5; overflow-wrap: anywhere; }
+.pcs-root .pcs-inline-controls { display: grid; grid-template-columns: 80px minmax(0, 1fr); gap: 8px; }
+.pcs-root .pcs-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 12px 16px; border-top: 1px solid var(--pcs-border); background: var(--pcs-layer); }
+.pcs-root .pcs-action-note { display: flex; align-items: center; gap: 5px; color: var(--pcs-muted); font-size: 10px; }
+.pcs-root .pcs-action-indicator { width: 4px; height: 4px; border-radius: 50%; background: var(--pcs-brand); }
 .pcs-root .pcs-action-indicator.is-dirty { background: var(--pcs-warn); }
-.pcs-root .pcs-action-buttons { display: flex; align-items: center; gap: 7px; }
-.pcs-root .pcs-overview { min-width: 0; border: 1px solid var(--pcs-border); border-radius: 13px; background: var(--pcs-layer); overflow: hidden; }
-.pcs-root .pcs-overview-head { padding: 22px 20px 17px; }
-.pcs-root .pcs-overview-status { display: flex; align-items: flex-start; gap: 9px; padding: 0 20px 18px; }
-.pcs-root .pcs-status-icon { display: inline-flex; flex: 0 0 23px; width: 23px; height: 23px; align-items: center; justify-content: center; margin-top: 2px; border-radius: 50%; color: var(--pcs-brand); background: color-mix(in srgb, var(--pcs-brand) 10%, var(--pcs-layer)); font-size: 13px; font-weight: 600; }
-.pcs-root .pcs-overview-status strong { display: block; font-size: 12px; font-weight: 600; line-height: 1.8; color: var(--pcs-brand); }
-.pcs-root .pcs-overview-status div > span { display: block; font-size: 11px; color: var(--pcs-muted); line-height: 1.7; overflow-wrap: anywhere; }
-.pcs-root .is-waiting .pcs-status-icon { background: color-mix(in srgb, var(--pcs-warn) 10%, var(--pcs-layer)); color: var(--pcs-warn); }
-.pcs-root .is-waiting strong { color: var(--pcs-warn); }
-.pcs-root .pcs-metric-grid { display: grid; grid-template-columns: 1fr 1fr; margin: 0 20px; border-top: 1px solid var(--pcs-border); border-bottom: 1px solid var(--pcs-border); padding: 16px 0; gap: 17px 10px; }
-.pcs-root .pcs-metric { min-width: 0; }
-.pcs-root .pcs-metric > span { display: block; font-size: 11px; color: var(--pcs-muted); margin-bottom: 3px; }
-.pcs-root .pcs-metric > strong { display: block; font-size: 20px; line-height: 1.4; letter-spacing: -.04em; font-weight: 600; color: var(--pcs-fg); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
-.pcs-root .pcs-metric:nth-child(2) > strong { font-size: 17px; line-height: 1.65; letter-spacing: -.02em; }
-.pcs-root .pcs-rule-list { padding: 18px 20px 20px; }
-.pcs-root .pcs-section-caption { font-size: 10px; color: var(--pcs-muted); font-weight: 650; letter-spacing: .13em; margin-bottom: 10px; }
-.pcs-root .pcs-route { display: flex; align-items: center; gap: 9px; padding: 10px; width: 100%; text-align: left; border: 1px solid var(--pcs-border); border-radius: 8px; background: var(--pcs-bg); color: var(--pcs-fg); }
-.pcs-root .pcs-route + .pcs-route { margin-top: 8px; }
-.pcs-root .pcs-route:hover:not(:disabled) { border-color: var(--pcs-brand); }
-.pcs-root .pcs-route-mark { display: flex; align-items: center; justify-content: center; flex: 0 0 26px; width: 26px; height: 26px; border-radius: 7px; font-size: 12px; font-weight: 700; color: var(--pcs-brand); background: var(--pcs-soft); }
-.pcs-root .pcs-route-copy { display: block; min-width: 0; flex: 1; }
-.pcs-root .pcs-route-copy strong { display: block; font-size: 11px; font-weight: 600; overflow-wrap: anywhere; }
-.pcs-root .pcs-route-copy small { display: block; color: var(--pcs-muted); font-size: 11px; }
-.pcs-root .pcs-route-arrow { color: var(--pcs-muted); font-size: 13px; }
-.pcs-root .pcs-overview-empty { font-size: 11px; color: var(--pcs-muted); }
-.pcs-root .pcs-overview-foot { display: flex; align-items: center; gap: 7px; padding: 13px 20px; border-top: 1px solid var(--pcs-border); font-size: 11px; color: var(--pcs-muted); }
-.pcs-root .pcs-overview-foot img { display: block; width: 16px; height: 16px; }
-.pcs-root .pcs-listener { margin-top: 20px; box-shadow: none; }
-.pcs-root .pcs-listener > summary { display: flex; align-items: center; gap: 9px; list-style: none; padding: 17px 20px; cursor: pointer; font-size: 13px; font-weight: 600; color: var(--pcs-fg); }
-.pcs-root .pcs-listener > summary::-webkit-details-marker { display: none; }
-.pcs-root .pcs-listener > summary::after { content: '⌄'; color: var(--pcs-muted); font-size: 16px; margin-left: 4px; transition: transform .15s; }
-.pcs-root .pcs-listener[open] > summary { border-bottom: 1px solid var(--pcs-border); }
-.pcs-root .pcs-listener[open] > summary::after { transform: rotate(180deg); }
-.pcs-root .pcs-summary-icon { display: flex; align-items: center; justify-content: center; width: 25px; height: 25px; border-radius: 7px; color: var(--pcs-brand); background: var(--pcs-soft); font-size: 20px; font-weight: 400; }
-.pcs-root .pcs-summary-count { margin-left: auto; font-size: 11px; font-weight: 500; color: var(--pcs-muted); background: var(--pcs-layer); border-radius: 5px; padding: 2px 7px; }
-.pcs-root .pcs-switch { border: 1px solid var(--pcs-border); background: var(--pcs-layer); color: var(--pcs-muted); border-radius: 7px; display: inline-flex; align-items: center; gap: 8px; padding: 6px 10px; font-size: 12px; }
-.pcs-root .pcs-switch-track { width: 29px; height: 17px; border-radius: 12px; background: var(--pcs-border); padding: 2px; display: inline-flex; }
-.pcs-root .pcs-switch-knob { width: 13px; height: 13px; background: var(--pcs-bg); border-radius: 50%; box-shadow: 0 1px 2px #0002; }
-.pcs-root .pcs-switch[aria-checked="true"] { color: var(--pcs-brand); }
-.pcs-root .pcs-switch[aria-checked="true"] .pcs-switch-track { background: var(--pcs-button-fill); justify-content: flex-end; }
-.pcs-root .pcs-listener-toolbar { display: flex; align-items: center; flex-wrap: wrap; justify-content: space-between; gap: 10px; margin-bottom: 16px; }
-.pcs-root .pcs-log-list { display: grid; gap: 9px; }
-.pcs-root .pcs-log { min-width: 0; background: var(--pcs-layer); border: 1px solid var(--pcs-border); border-radius: 8px; overflow: hidden; }
-.pcs-root .pcs-log > summary { padding: 11px 13px; cursor: pointer; font-size: 11px; overflow-wrap: anywhere; }
-.pcs-root .pcs-log-dot { display: inline-block; width: 5px; height: 5px; border-radius: 50%; margin-right: 7px; background: var(--pcs-brand); }
-.pcs-root .pcs-log-content { border-top: 1px solid var(--pcs-border); padding: 14px; }
-.pcs-root .pcs-log-meta { display: flex; flex-wrap: wrap; gap: 7px 15px; color: var(--pcs-muted); font-size: 11px; margin-bottom: 9px; }
-.pcs-root .pcs-log-label { font-size: 11px; font-weight: 600; margin: 12px 0 6px; }
-.pcs-root .pcs-log pre { margin: 0; max-height: 260px; max-width: 100%; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--pcs-fg); border: 1px solid var(--pcs-border); background: var(--pcs-bg); padding: 11px; border-radius: 7px; font: 10px/1.75 ui-monospace, SFMono-Regular, Consolas, monospace; }
-.pcs-root .pcs-code { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 11px; }
-.pcs-root .pcs-validation { color: var(--pcs-error); font-size: 12px; margin-top: 9px; }
-.pcs-root .pcs-empty { text-align: center; padding: 38px 20px; margin-top: 10px; color: var(--pcs-muted); background: var(--pcs-layer); border: 1px dashed var(--pcs-border); border-radius: 13px; font-size: 12px; }
-.pcs-root .pcs-empty strong { display: block; margin: 12px 0 5px; color: var(--pcs-fg); font-size: 14px; font-weight: 600; }
-.pcs-root .pcs-empty-logo img { width: 36px; height: 36px; opacity: .8; }
-.pcs-root .pcs-footer { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-top: 17px; padding: 0 2px; color: var(--pcs-muted); font-size: 11px; }
+.pcs-root .pcs-action-buttons { display: flex; align-items: center; gap: 6px; }
+.pcs-root .pcs-overview { display: grid; grid-template-columns: 1.35fr 1fr 1fr .8fr; align-items: center; gap: 8px; min-width: 0; padding: 11px 13px; border: 1px solid var(--pcs-border); border-radius: 10px; background: var(--pcs-layer); }
+.pcs-root .pcs-overview-status { display: flex; align-items: center; gap: 7px; min-width: 0; }
+.pcs-root .pcs-status-icon { display: flex; align-items: center; justify-content: center; flex: 0 0 21px; width: 21px; height: 21px; border-radius: 50%; color: var(--pcs-brand); background: var(--pcs-soft); font-size: 12px; }
+.pcs-root .pcs-overview-caption, .pcs-root .pcs-metric > span { display: block; color: var(--pcs-muted); font-size: 10px; white-space: nowrap; }
+.pcs-root .pcs-overview-status strong { display: block; color: var(--pcs-brand); font-size: 11px; line-height: 1.7; white-space: nowrap; }
+.pcs-root .is-waiting :is(.pcs-status-icon, strong) { color: var(--pcs-warn); }
+.pcs-root .pcs-metric { min-width: 0; padding-left: 10px; border-left: 1px solid var(--pcs-border); }
+.pcs-root .pcs-metric > strong { display: block; color: var(--pcs-fg); font-size: 16px; line-height: 1.5; font-weight: 600; font-variant-numeric: tabular-nums; }
+.pcs-root .pcs-empty { margin-top: 12px; padding: 30px 16px; text-align: center; color: var(--pcs-muted); background: var(--pcs-layer); border: 1px dashed var(--pcs-border); border-radius: 10px; font-size: 12px; }
+.pcs-root .pcs-empty strong { display: block; margin-bottom: 7px; color: var(--pcs-fg); font-size: 14px; }
 .pcs-root .pcs-muted { color: var(--pcs-muted); }
-.pcs-root .pcs-small { font-size: 11px; font-weight: 400; }
-.pcs-root .pcs-spin { width: 12px; height: 12px; border: 1.7px solid currentColor; border-right-color: transparent; border-radius: 50%; display: inline-block; animation: pcs-spin .8s linear infinite; }
+.pcs-root .pcs-small { font-size: 10px; font-weight: 400; }
+.pcs-root .pcs-code { font-family: ui-monospace, Consolas, monospace; }
+.pcs-root .pcs-spin { display: inline-block; width: 12px; height: 12px; border: 1.7px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: pcs-spin .8s linear infinite; }
 @keyframes pcs-spin { to { transform: rotate(360deg); } }
-.pcs-root .pcs-sidebar-logo { display: inline-block; flex: 0 0 auto; background-color: currentColor; -webkit-mask-position: center; mask-position: center; -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat; -webkit-mask-size: contain; mask-size: contain; vertical-align: middle; }
-@container (max-width: 850px) {
-  .pcs-root .pcs-layout { grid-template-columns: minmax(0, 1fr); gap: 16px; }
-  .pcs-root .pcs-overview { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
-  .pcs-root .pcs-overview-head { padding-bottom: 10px; }
-  .pcs-root .pcs-overview-status { grid-column: 1; padding-top: 0; }
-  .pcs-root .pcs-metric-grid { grid-column: 2; grid-row: 1 / span 2; align-content: center; border: 0; border-left: 1px solid var(--pcs-border); padding-left: 20px; margin: 17px 20px 17px 0; }
-  .pcs-root .pcs-rule-list { grid-column: 1 / -1; padding: 0 20px 18px; }
-  .pcs-root .pcs-overview-foot { grid-column: 1 / -1; }
+@container (max-width: 700px) {
+  .pcs-root .pcs-layout { grid-template-columns: minmax(0, 1fr); }
+  .pcs-root .pcs-editor > .pcs-card-body { display: block; }
 }
 @container (max-width: 520px) {
-  .pcs-root .pcs-hero { align-items: flex-start; gap: 10px; margin-bottom: 20px; }
-  .pcs-root .pcs-brand-lockup { gap: 10px; align-items: flex-start; }
-  .pcs-root .pcs-brand-logo { width: 40px; height: 40px; flex-basis: 40px; }
-  .pcs-root .pcs-eyebrow { font-size: 10px; letter-spacing: .1em; margin-bottom: 3px; }
-  .pcs-root .pcs-title { font-size: 18px; gap: 6px; }
-  .pcs-root .pcs-version { font-size: 10px; padding: 1px 5px; }
-  .pcs-root .pcs-subtitle { font-size: 11px; margin-top: 6px; }
-  .pcs-root .pcs-refresh { font-size: 11px; padding: 5px 8px; min-height: 30px; }
-  .pcs-root .pcs-refresh-icon { font-size: 17px; }
-  .pcs-root .pcs-current { padding: 12px 14px; gap: 9px; }
-  .pcs-root .pcs-current-chip { gap: 3px 8px; }
-  .pcs-root .pcs-current-chip strong { font-size: 13px; }
-  .pcs-root .pcs-current-chip span { font-size: 11px; }
-  .pcs-root .pcs-card-head { padding: 16px; }
-  .pcs-root .pcs-card-body { padding: 18px 16px; }
-  .pcs-root .pcs-field { margin-bottom: 22px; }
-  .pcs-root .pcs-clients { grid-template-columns: minmax(0, 1fr); gap: 8px; }
-  .pcs-root .pcs-client { padding: 12px; }
-  .pcs-root .pcs-client-topline { flex-direction: row; align-items: center; gap: 9px; padding-right: 15px; }
-  .pcs-root .pcs-client-description { margin-left: 36px; margin-top: -3px; font-size: 11px; }
-  .pcs-root .pcs-client input { top: 20px; right: 14px; }
-  .pcs-root .pcs-client-mark { width: 25px; height: 25px; flex: 0 0 25px; }
-  .pcs-root .pcs-inline-controls { grid-template-columns: 88px minmax(0, 1fr); }
-  .pcs-root .pcs-actions { padding: 14px 16px; flex-wrap: wrap; gap: 12px; }
-  .pcs-root .pcs-action-buttons { margin-left: auto; }
-  .pcs-root .pcs-overview { display: block; }
-  .pcs-root .pcs-metric-grid { border: 0; border-top: 1px solid var(--pcs-border); border-bottom: 1px solid var(--pcs-border); margin: 0 20px; padding: 16px 0; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
-  .pcs-root .pcs-metric > span { font-size: 10px; }
-  .pcs-root .pcs-metric > strong { font-size: 18px; }
-  .pcs-root .pcs-metric:nth-child(2) > strong { font-size: 14px; }
-  .pcs-root .pcs-rule-list { padding-top: 16px; }
-  .pcs-root .pcs-listener > summary { padding: 14px 16px; gap: 7px; font-size: 12px; }
-  .pcs-root .pcs-listener > summary .pcs-small { font-size: 11px; }
-  .pcs-root .pcs-summary-icon { width: 22px; height: 22px; font-size: 18px; }
-  .pcs-root .pcs-listener-toolbar { justify-content: flex-start; }
-  .pcs-root .pcs-footer { font-size: 10px; }
+  .pcs-root .pcs-notice { display: none; }
+  .pcs-root .pcs-hero { align-items: flex-start; }
+  .pcs-root .pcs-brand-logo { width: 38px; height: 38px; flex-basis: 38px; }
+  .pcs-root .pcs-title { font-size: 19px; }
+  .pcs-root .pcs-eyebrow { font-size: 8px; }
+  .pcs-root .pcs-subtitle { font-size: 10px; }
+  .pcs-root .pcs-header-actions { gap: 0; }
+  .pcs-root .pcs-current { gap: 6px; }
+  .pcs-root .pcs-current-chip { gap: 3px 7px; }
+  .pcs-root .pcs-overview { grid-template-columns: 1.25fr 1fr 1fr .8fr; gap: 5px; padding: 10px; }
+  .pcs-root .pcs-overview-status { gap: 4px; }
+  .pcs-root .pcs-status-icon { display: none; }
+  .pcs-root .pcs-metric { padding-left: 6px; }
+  .pcs-root .pcs-overview-caption, .pcs-root .pcs-metric > span { font-size: 9px; }
 }
-@media (max-width: 620px) { .pcs-root { padding: 20px 14px 18px; } }
+@media (max-width: 900px), (max-height: 760px) { .pcs-root { padding: 14px 18px; } .pcs-root .pcs-hero { margin-bottom: 12px; } }
+@media (max-width: 520px) { .pcs-root { padding: 14px 12px; } }
 @media (prefers-reduced-motion: reduce) { .pcs-root *, .pcs-root *::before, .pcs-root *::after { animation: none !important; transition: none !important; } }
 `;
 
@@ -1049,7 +1148,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.API_PATH = exports.SETTINGS_NS = exports.PLUGIN_VERSION = exports.PLUGIN_NAME = void 0;
 exports.PLUGIN_NAME = 'dsh-mimic';
 /** Build replaces this marker with package.json version; the test suite asserts they match. */
-exports.PLUGIN_VERSION = '0.3.6';
+exports.PLUGIN_VERSION = '0.4.2';
 exports.SETTINGS_NS = 'dsh-mimic';
 exports.API_PATH = '/dsh-mimic/api';
 /** RPC: state {}; save {providerId,rule,revision}; listener {enabled,revision}; logs {}; clear {}. */

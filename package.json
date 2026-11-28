@@ -1,6 +1,6 @@
 {
   "name": "dsh-mimic",
-  "version": "0.3.6",
+  "version": "0.4.2",
   "description": "客户端模拟：为 DSH 供应商配置 Claude Code / Codex 客户端身份，独立设置并同步转换出站请求头与体",
   "type": "module",
   "license": "MIT",
@@ -15,6 +15,7 @@
     "profiles",
     "assets",
     "docs/BRAND.md",
+    "docs/CACHE_DIAGNOSTICS.md",
     "cordis.patch.yml",
     "README.md",
     "FINGERPRINT.md",
@@ -30,7 +31,7 @@
   "scripts": {
     "build": "node scripts/build.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "node scripts/build.mjs && node --test --test-isolation=none build/test/core.test.js build/test/client.test.js build/test/host.test.js build/test/response.test.js build/test/bundle.test.js",
+    "test": "node scripts/build.mjs && node --test --test-isolation=none build/test/core.test.js build/test/client.test.js build/test/host.test.js build/test/response.test.js build/test/bundle.test.js build/test/usage.test.js build/test/metrics.test.js build/test/diagnostics.test.js build/test/cache-client.test.js",
     "test:runtime": "node scripts/build.mjs && node --test --test-isolation=none build/test/runtime.test.js",
     "pack": "node scripts/build.mjs && node -e \"require('node:fs').mkdirSync('release',{recursive:true})\" && npm pack --ignore-scripts --pack-destination ./release"
   },

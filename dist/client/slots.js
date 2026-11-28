@@ -27,7 +27,7 @@ function registerAll(slots, render) {
     }, render.panel));
     slots.inject(MAIN_SLOT_ID, () => slots.register({
         name: MAIN_SLOT_ID, key: PANEL_ID, label: () => PANEL_TITLE,
-    }, render.panel));
+    }, render.mainPanel ?? render.panel));
     slots.inject(SIDEBAR_SLOT_ID, () => slots.register({
         name: SIDEBAR_SLOT_ID, id: PANEL_ID, order: 30, label: () => PANEL_TITLE,
     }, render.icon));

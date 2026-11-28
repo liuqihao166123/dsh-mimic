@@ -1,98 +1,158 @@
-import { isObject } from '../core/json.js';
-const number = (value) => typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : undefined;
-function readUsage(value) {
-    const details = isObject(value.input_tokens_details) ? value.input_tokens_details : {};
-    const prompt = number(value.input_tokens) ?? number(value.prompt_tokens);
-    const cached = number(value.cache_read_input_tokens) ?? number(details.cached_tokens) ?? number(value.cached_tokens);
-    const written = number(value.cache_creation_input_tokens);
-    if (prompt === undefined && cached === undefined && written === undefined)
-        return undefined;
-    return { prompt: prompt ?? 0, cached: cached ?? 0, written: written ?? 0 };
+import { extractUsage } from './usage.js';
+export { extractUsage } from './usage.js';
+const WINDOW = 20;
+const MAX_PROVIDERS = 128;
+const MAX_SESSIONS = 64;
+const MAX_MODELS = 128;
+const MAX_OPERATIONS = 256;
+export const emptyCacheCounters = () => ({
+    requests: 0, success: 0, failed: 0, cancelled: 0, incomplete: 0,
+    coldRequests: 0, fallbackRequests: 0, retryRequests: 0,
+    usageRequests: 0, cacheReportedRequests: 0, missingUsageRequests: 0, unknownCacheRequests: 0, invalidUsageRequests: 0,
+    promptTokens: 0, cachedTokens: 0, writtenTokens: 0, uncachedTokens: 0, knownPromptTokens: 0, hitRate: null, coverage: 0,
+});
+const validNumber = (n) => Number.isSafeInteger(n) && n >= 0;
+const sessionKey = (m) => JSON.stringify([m.sessionTag, m.modelId, m.profile, m.protocol, m.purpose ?? '']);
+const modelKey = (m) => JSON.stringify([m.modelId, m.profile, m.protocol, m.purpose ?? '']);
+function touch(map, key, value, limit) {
+    map.delete(key);
+    map.set(key, value);
+    while (map.size > limit)
+        map.delete(map.keys().next().value);
 }
-/**
- * Collects every `"usage": {...}` object in a response body with a bounded brace scan, so both
- * SSE frames and plain JSON replies work without buffering the whole stream into memory twice.
- */
-export function extractUsage(text) {
-    function candidates() {
-        const found = [];
-        const key = /"usage"\s*:\s*/g;
-        let match;
-        while ((match = key.exec(text)) !== null) {
-            const start = match.index + match[0].length;
-            if (text[start] !== '{')
-                continue;
-            let depth = 0, inString = false, escaped = false;
-            const limit = Math.min(text.length, start + 8192);
-            for (let i = start; i < limit; i += 1) {
-                const ch = text[i];
-                if (inString) {
-                    if (escaped)
-                        escaped = false;
-                    else if (ch === '\\')
-                        escaped = true;
-                    else if (ch === '"')
-                        inString = false;
-                    continue;
-                }
-                if (ch === '"') {
-                    inString = true;
-                    continue;
-                }
-                if (ch === '{') {
-                    depth += 1;
-                    continue;
-                }
-                if (ch !== '}')
-                    continue;
-                depth -= 1;
-                if (depth !== 0)
-                    continue;
-                try {
-                    const parsed = JSON.parse(text.slice(start, i + 1));
-                    if (isObject(parsed))
-                        found.push(parsed);
-                }
-                catch { /* a truncated or non-JSON tail is not a usage snapshot */ }
-                break;
-            }
+function apply(c, r) {
+    c.requests++;
+    if (r.outcome === 'success')
+        c.success++;
+    else if (r.outcome === 'cancelled')
+        c.cancelled++;
+    else if (r.outcome === 'incomplete')
+        c.incomplete++;
+    else
+        c.failed++;
+    if (r.cold)
+        c.coldRequests++;
+    if (r.retry)
+        c.retryRequests++;
+    if (r.meta.sessionSource === 'fallback')
+        c.fallbackRequests++;
+    const at = new Date(r.time).toISOString();
+    c.since = !c.since || c.since > at ? at : c.since;
+    c.lastAt = !c.lastAt || c.lastAt < at ? at : c.lastAt;
+    const s = r.observation.sample;
+    const valid = !!s && validNumber(s.prompt) && validNumber(s.cached) && validNumber(s.written);
+    const consistent = valid && s.cached <= s.prompt && s.written <= s.prompt - s.cached;
+    if (r.observation.malformed || r.observation.limitExceeded || s && !consistent)
+        c.invalidUsageRequests++;
+    if (!valid)
+        c.missingUsageRequests++;
+    else {
+        c.usageRequests++;
+        c.promptTokens += s.prompt;
+        // Writes are meaningful even when upstream did not report a read-cache field.
+        if (consistent)
+            c.writtenTokens += s.written;
+        if (consistent && s.cacheReported && !r.observation.malformed && !r.observation.limitExceeded) {
+            c.cacheReportedRequests++;
+            c.knownPromptTokens += s.prompt;
+            c.cachedTokens += s.cached;
+            c.uncachedTokens += s.prompt - s.cached - s.written;
         }
-        return found;
+        else
+            c.unknownCacheRequests++;
     }
-    let best;
-    for (const candidate of candidates()) {
-        const sample = readUsage(candidate);
-        if (!sample)
-            continue;
-        // Later frames carry the complete snapshot; prefer the richest one if several arrive.
-        if (!best || sample.prompt + sample.cached >= best.prompt + best.cached)
-            best = sample;
-    }
-    return best;
+    c.hitRate = c.knownPromptTokens > 0 ? c.cachedTokens / c.knownPromptTokens : null;
+    c.coverage = c.requests > 0 ? c.cacheReportedRequests / c.requests : 0;
 }
-/** Per-provider cache counters, derived only from upstream usage fields. */
+function sum(records) {
+    const counters = emptyCacheCounters();
+    for (const record of records)
+        apply(counters, record);
+    return counters;
+}
+function sanitizeMeta(m) {
+    return { providerId: m.providerId.slice(0, 512), modelId: m.modelId.slice(0, 512), profile: m.profile.slice(0, 256),
+        protocol: m.protocol, sessionTag: m.sessionTag.slice(0, 64), sessionSource: m.sessionSource,
+        ...(m.operationTag ? { operationTag: m.operationTag.slice(0, 64) } : {}),
+        ...(m.purpose ? { purpose: /^[a-z0-9._/-]{1,64}$/i.test(m.purpose) ? m.purpose : 'other' } : {}) };
+}
+/** Bounded, in-memory HTTP-attempt accounting. Unknown cache reporting never becomes a false 0% hit. */
 export class CacheMetrics {
-    buckets = new Map();
+    now;
+    providers = new Map();
+    startedAt;
+    constructor(now = Date.now) {
+        this.now = now;
+        this.startedAt = new Date(now()).toISOString();
+    }
+    begin(input) {
+        const meta = sanitizeMeta(input);
+        const bucket = this.providers.get(meta.providerId) ?? { counters: emptyCacheCounters(), recent: [], sessions: new Map(), models: new Map(), operations: new Map(), latestSessionTag: meta.sessionTag };
+        touch(this.providers, meta.providerId, bucket, MAX_PROVIDERS);
+        bucket.latestSessionTag = meta.sessionTag;
+        const key = sessionKey(meta), cold = !bucket.sessions.has(key);
+        const session = bucket.sessions.get(key) ?? { meta, counters: emptyCacheCounters() };
+        const model = bucket.models.get(modelKey(meta)) ?? { meta, counters: emptyCacheCounters() };
+        touch(bucket.sessions, key, session, MAX_SESSIONS);
+        touch(bucket.models, modelKey(meta), model, MAX_MODELS);
+        const previousAttempts = meta.operationTag ? bucket.operations.get(meta.operationTag) ?? 0 : 0;
+        if (meta.operationTag)
+            touch(bucket.operations, meta.operationTag, previousAttempts + 1, MAX_OPERATIONS);
+        let settled = false;
+        return { complete: (observation, explicitOutcome) => {
+                if (settled)
+                    return;
+                settled = true;
+                // A reset or an eviction fences off older in-flight completions.
+                if (this.providers.get(meta.providerId) !== bucket)
+                    return;
+                const outcome = explicitOutcome ?? (observation.state === 'complete' ? 'success' : observation.state === 'failed' ? 'stream-error' : observation.state);
+                const record = { meta, time: this.now(), observation: { ...observation, ...(observation.sample ? { sample: { ...observation.sample } } : {}) }, outcome, cold, retry: previousAttempts > 0 };
+                apply(bucket.counters, record);
+                if (bucket.sessions.get(key) === session)
+                    apply(session.counters, record);
+                if (bucket.models.get(modelKey(meta)) === model)
+                    apply(model.counters, record);
+                bucket.recent.push(record);
+                if (bucket.recent.length > WINDOW)
+                    bucket.recent.splice(0, bucket.recent.length - WINDOW);
+            } };
+    }
+    /** Compatibility helper for deterministic text fixtures, not used by the streaming transport. */
+    ingest(providerId, text, protocol) {
+        const sample = extractUsage(text, protocol);
+        this.record(providerId, sample);
+    }
     record(providerId, sample) {
-        if (sample.prompt <= 0 && sample.cached <= 0)
-            return;
-        const bucket = this.buckets.get(providerId) ?? { requests: 0, prompt: 0, cached: 0 };
-        bucket.requests += 1;
-        bucket.prompt += sample.prompt;
-        bucket.cached += sample.cached;
-        this.buckets.set(providerId, bucket);
+        this.begin({ providerId, modelId: '', profile: '', protocol: 'openai-responses', sessionTag: 'unknown', sessionSource: 'fallback' })
+            .complete({ ...(sample ? { sample } : {}), state: 'complete', malformed: false, limitExceeded: false });
     }
-    ingest(providerId, text) {
-        const sample = extractUsage(text);
-        if (sample)
-            this.record(providerId, sample);
+    report() {
+        const providers = [...this.providers].map(([providerId, bucket]) => {
+            const dimensions = (map, session) => [...map.values()].map(item => ({
+                modelId: item.meta.modelId, profile: item.meta.profile, protocol: item.meta.protocol,
+                ...(item.meta.purpose ? { purpose: item.meta.purpose } : {}),
+                ...(session ? { sessionTag: item.meta.sessionTag, sessionSource: item.meta.sessionSource } : {}),
+                counters: { ...item.counters },
+                recent: sum(bucket.recent.filter(record => (session ? sessionKey(record.meta) === sessionKey(item.meta) : modelKey(record.meta) === modelKey(item.meta)))),
+            }));
+            return { providerId, lifetime: { ...bucket.counters }, recent: sum(bucket.recent), latestSessionTag: bucket.latestSessionTag,
+                sessions: dimensions(bucket.sessions, true), models: dimensions(bucket.models, false) };
+        });
+        return { startedAt: this.startedAt, windowSize: WINDOW, providers };
     }
+    /** Legacy summary retained so an older client can still display counts during a reload. */
     snapshot() {
-        return [...this.buckets.entries()].map(([providerId, bucket]) => ({
-            providerId, requests: bucket.requests, promptTokens: bucket.prompt, cachedTokens: bucket.cached,
-            hitRate: bucket.prompt > 0 ? Math.min(1, bucket.cached / bucket.prompt) : 0,
-        }));
+        return [...this.providers].map(([providerId, b]) => ({ providerId, requests: b.counters.requests,
+            promptTokens: b.counters.promptTokens, cachedTokens: b.counters.cachedTokens, hitRate: b.counters.hitRate ?? 0 }));
     }
-    clear() { this.buckets.clear(); }
+    clear(providerId) {
+        if (providerId !== undefined)
+            this.providers.delete(providerId);
+        else {
+            this.providers.clear();
+            this.startedAt = new Date(this.now()).toISOString();
+        }
+    }
 }
 //# sourceMappingURL=metrics.js.map

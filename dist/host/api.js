@@ -8,12 +8,14 @@ export class PanelController {
     settings;
     listener;
     runtime;
-    constructor(store, llm, settings, listener, runtime) {
+    controls;
+    constructor(store, llm, settings, listener, runtime, controls) {
         this.store = store;
         this.llm = llm;
         this.settings = settings;
         this.listener = listener;
         this.runtime = runtime;
+        this.controls = controls;
     }
     async state() {
         const config = this.store.snapshot();
@@ -43,6 +45,26 @@ export class PanelController {
             case 'clear':
                 this.listener.clear();
                 return { ok: true, state: await this.state() };
+            case 'cache-reset':
+            case 'cache-diagnostics-clear': {
+                if (!this.controls)
+                    throw new RpcError('DIAGNOSTICS_UNAVAILABLE', '缓存诊断尚未接入，请刷新插件。', 503);
+                if (input.providerId !== undefined && (typeof input.providerId !== 'string' || !input.providerId || input.providerId.length > 512))
+                    throw new RpcError('INVALID_PROVIDER', '供应商标识格式有误。');
+                if (input.action === 'cache-reset')
+                    this.controls.resetCache(input.providerId);
+                else
+                    this.controls.clearDiagnostics(input.providerId);
+                return { ok: true, state: await this.state() };
+            }
+            case 'cache-diagnostics': {
+                if (!this.controls)
+                    throw new RpcError('DIAGNOSTICS_UNAVAILABLE', '缓存诊断尚未接入，请刷新插件。', 503);
+                if (typeof input.enabled !== 'boolean')
+                    throw new RpcError('INVALID_DIAGNOSTICS', '诊断开关应为布尔值。');
+                this.controls.diagnostics(input.enabled);
+                return { ok: true, state: await this.state() };
+            }
             default: throw new RpcError('UNKNOWN_ACTION', '插件接口操作不存在。', 404);
         }
     }

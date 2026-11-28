@@ -142,7 +142,8 @@ test('compiled shipping bundle executes ModuleLoader factory and resolves host R
   const loaded = executeCompiledModule();
   assert.equal(loaded.descriptor.id, EXPECTED_PLUGIN_ID);
   assert.equal(loaded.plugin.name, EXPECTED_PLUGIN_ID);
-  assert.deepEqual(loaded.externalRequests, ['react']);
+  assert.ok(loaded.externalRequests.length >= 1);
+  assert.deepEqual([...new Set(loaded.externalRequests)], ['react'], 'all client modules resolve only the host React external');
   assert.equal(loaded.elements.length, 0, 'module evaluation does not invent a UI mount');
 });
 
@@ -181,7 +182,7 @@ test('compiled registrations expose settings/main/sidebar descriptors and render
   assert.equal((settingsEl.type as { name: string }).name, 'ProviderClientPanel');
   assert.equal(settingsEl.props, null);
   assert.deepEqual(settingsEl.children, []);
-  assert.equal((mainEl.type as { name: string }).name, 'ProviderClientPanel');
+  assert.equal((mainEl.type as { name: string }).name, 'ProviderClientPage');
   assert.equal((iconEl.type as { name: string }).name, 'SidebarIcon');
   assert.equal((iconEl.props as { size: number }).size, 16);
   assert.equal(loaded.elements.length, 3);

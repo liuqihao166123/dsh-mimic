@@ -38,6 +38,15 @@ export type PanelApiRequest = {
     action: 'logs';
 } | {
     action: 'clear';
+} | {
+    action: 'cache-reset';
+    providerId?: string;
+} | {
+    action: 'cache-diagnostics';
+    enabled: boolean;
+} | {
+    action: 'cache-diagnostics-clear';
+    providerId?: string;
 };
 export interface PanelApiReply {
     state?: PublicPanelState;
