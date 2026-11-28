@@ -26,6 +26,30 @@ function errorCode(error) {
         return error.code.slice(0, 80);
     return error instanceof SyntaxError ? 'INVALID_JSON_BODY' : 'REQUEST_TRANSFORM_FAILED';
 }
+const maxUsageChars = 4 * 1024 * 1024;
+async function drainUsage(stream, sink) {
+    const reader = stream.getReader();
+    const decoder = new TextDecoder();
+    let text = '';
+    try {
+        for (;;) {
+            const chunk = await reader.read();
+            if (chunk.done)
+                break;
+            if (text.length < maxUsageChars)
+                text += decoder.decode(chunk.value, { stream: true });
+        }
+        if (text.length)
+            sink(text);
+    }
+    catch { /* usage accounting must never surface as a request failure */ }
+    finally {
+        try {
+            reader.releaseLock();
+        }
+        catch { /* already released by cancel */ }
+    }
+}
 async function intercept(registry, scope, input, init) {
     const request = input instanceof Request ? input : undefined;
     const url = request?.url ?? String(input);
@@ -78,6 +102,12 @@ async function intercept(registry, scope, input, init) {
         const response = await registry.original(result.url, outgoing);
         if (entry)
             entry.status = response.status;
+        // Tee the reply so cache counters can be read without delaying or altering the caller's stream.
+        if (scope.usage && response.ok && response.body) {
+            const [caller, tap] = response.body.tee();
+            void drainUsage(tap, scope.usage);
+            return bridgeResponse(new Response(caller, { status: response.status, statusText: response.statusText, headers: response.headers }), result);
+        }
         return bridgeResponse(response, result);
     }
     catch (error) {

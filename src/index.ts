@@ -7,6 +7,7 @@ import { PanelController, createApiHandler } from './host/api.js';
 import type { HostContext, LlmDirectory, SettingsHost, WebServerHost } from './host/contracts.js';
 import { RequestListener } from './host/listener.js';
 import { ProviderLimiter } from './host/limiter.js';
+import { CacheMetrics } from './host/metrics.js';
 import { installTransport } from './host/transport.js';
 import type { ConcurrencyStat } from './types.js';
 export const name = PLUGIN_NAME;
@@ -27,6 +28,7 @@ export function apply(ctx: HostContext, options: Options = {}): void {
     const store = new ConfigStore(settings, options.config, namespace);
     const listener = new RequestListener(); listener.configure(store.snapshot().listener);
     const limiter = new ProviderLimiter();
+    const metrics = new CacheMetrics();
     let transport = 'waiting' as RuntimeState['transport'];
     let detail = '等待请求传输拦截器。';
     let registrations = () => 0;
@@ -36,7 +38,7 @@ export function apply(ctx: HostContext, options: Options = {}): void {
         const usage = limiter.usage(providerId);
         return { providerId, limit: rule.concurrency ?? 0, active: usage.active, queued: usage.queued };
       });
-    const controller = new PanelController(store, llm, settings, listener, () => ({ transport, detail, registrations: registrations(), concurrency: concurrencyStats() }));
+    const controller = new PanelController(store, llm, settings, listener, () => ({ transport, detail, registrations: registrations(), concurrency: concurrencyStats(), cache: metrics.snapshot() }));
     child.effect(() => settings.configure({ auto: false }, ctx.fiber));
     child.effect(() => webServer.register({ kind: 'exact', path: API_PATH, handler: createApiHandler(controller) }));
     child.effect(() => {
@@ -57,7 +59,7 @@ export function apply(ctx: HostContext, options: Options = {}): void {
         if (rule.modelIds?.length && !rule.modelIds.includes(modelId)) return lease.bypass(next);
         const factory = (): AsyncIterable<unknown> => rule.client === 'none'
           ? lease.bypass(next)
-          : lease.bind({ identity: { providerId: request.provider as string, modelId, sessionId: typeof request.sessionId === 'string' ? request.sessionId : randomUUID(), requestId: randomUUID() }, rule: structuredClone(rule), deviceId: config.identity.deviceId, accountId: config.identity.accountId, record: (result, context) => listener.record(result, context), onError: code => { detail = '最近一次请求变换错误：' + code; } }, next);
+          : lease.bind({ identity: { providerId: request.provider as string, modelId, sessionId: typeof request.sessionId === 'string' ? request.sessionId : randomUUID(), requestId: randomUUID() }, rule: structuredClone(rule), deviceId: config.identity.deviceId, accountId: config.identity.accountId, record: (result, context) => listener.record(result, context), usage: text => metrics.ingest(request.provider as string, text), onError: code => { detail = '最近一次请求变换错误：' + code; } }, next);
         // A supplier-level cap queues (or rejects) generation streams instead of letting them burst upstream.
         return limit > 0 ? limiter.wrap(request.provider, limit, rule.concurrencyMode ?? 'queue', factory) : factory();
       }, { global: true });
@@ -65,7 +67,7 @@ export function apply(ctx: HostContext, options: Options = {}): void {
         if (args[0] !== namespace) return;
         try { listener.configure(store.snapshot().listener); } catch { detail = '插件配置正在重新加载。'; }
       });
-      return () => { stopSettings(); stop(); lease.release(); limiter.clear(); listener.clear(); transport = 'waiting'; };
+      return () => { stopSettings(); stop(); lease.release(); limiter.clear(); metrics.clear(); listener.clear(); transport = 'waiting'; };
     });
   });
 }

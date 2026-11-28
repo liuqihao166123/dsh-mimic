@@ -209,3 +209,20 @@ export default { name, inject, apply };   // 装载器取 default，inject 必�
 - 闸门实现 src/host/limiter.ts：按 providerId 的 active 计数 + FIFO waiter 队列；槽位在流首次拉取时申请、在 done/throw/return 释放并直接移交队首，保证 active ≤ limit 且无饥饿。
 - 修改并发相关行为时必须同步：src/host/config.ts 的 alidateRule 范围校验、
 ormalizeConfig / saveProvider 的重置保留逻辑、src/index.ts 的 concurrencyStats() 与 limiter.wrap() 调用点、客户端 parseConcurrency 与 alidConcurrencyStats。
+
+## 3.7 缓存断点与 prompt_cache_key（v0.3.2）
+
+缓存是**前缀式**的：断点打在哪个块，就缓存到那个块为止。旧实现把所有断点都打在 `system` 上，等于每轮都把整段对话重算一遍。
+
+现在的分配（`src/core/transform.ts` 的 `claudeBody()`）：
+
+1. `system` 尾部块 —— 覆盖 billing + identity + 项目提示；`placement: 'source-org'` 时 billing（索引 0）不缓存。
+2. 预算还剩 1 个时，落在**最新一条 message 的最后一个 `text` / `tool_result` 块**上 —— 这是让上一轮整段历史被复用的关键，断点随对话前移。
+3. 再有余量才给 `tools` 最后一项。
+4. 总数硬上限 4（Anthropic 超过即 400）；`image` / `document` 块不加断点，避免改动用户内容字节。
+
+Codex 侧（`codexBody()`）：`prompt_cache_key` 统一写成本次会话的 `session` uuid。它既是 OpenAI 前缀缓存的分片键，也是中转站路由到同一上游的依据；逐请求随机会让缓存永远打不中。
+
+`system` 前缀稳定性由 `billing.ts` 保证：`cc_version=<ver>.<sha256(salt + 首条用户文本 + <ver>)[0:3]>`、`cch=00000` 常量，同会话内不漂移。
+
+可观测：`src/host/metrics.ts` 的 `CacheMetrics` 从上游 `usage` 里读 `cache_read_input_tokens`（Anthropic）与 `input_tokens_details.cached_tokens`（OpenAI），面板显示 `缓存命中 X%（最近 N 次：输入 A / 命中 B）`。挂钩点在 `src/host/transport.ts`：回复流 `tee()` 一路给调用方、一路给统计，不延迟主链路。

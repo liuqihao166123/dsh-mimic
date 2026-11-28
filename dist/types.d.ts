@@ -102,11 +102,19 @@ export interface ConcurrencyStat {
     active: number;
     queued: number;
 }
+export interface CacheStat {
+    providerId: string;
+    requests: number;
+    promptTokens: number;
+    cachedTokens: number;
+    hitRate: number;
+}
 export interface RuntimeState {
     transport: 'active' | 'waiting' | 'unsupported';
     detail: string;
     registrations: number;
     concurrency?: ConcurrencyStat[];
+    cache?: CacheStat[];
 }
 export interface PanelState {
     providers: ProviderInfo[];

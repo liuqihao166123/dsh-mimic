@@ -1,6 +1,39 @@
 /* Generated from TypeScript. React is provided by the DSH browser host. */
 window.__ModuleLoader__.load({ id: "dsh-mimic", factory: function(external) {
-const factories={"/client/index.js": function(require,module,exports) {
+const factories={"/client/brand.js": function(require,module,exports) {
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.MONO_LOGO_DATA_URI = exports.LOGO_DATA_URI = void 0;
+/**
+ * Original DSH Mimic artwork. Keep the two SVG strings in sync with assets/logo*.svg.
+ * The monochrome URI is intended for a CSS mask whose background is currentColor.
+ * An <img> document does not inherit its parent's CSS color.
+ */
+const COLOR_LOGO_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 32 32" fill="none">
+  <title>DSH Mimic</title>
+  <rect width="32" height="32" rx="8" fill="#E8F6F3"/>
+  <g stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M6 26V6L16 18L21 12" stroke="#0D9488"/>
+    <path d="M21 12L26 6V26" stroke="#17324D"/>
+  </g>
+</svg>
+`;
+const MONO_LOGO_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32" fill="none">
+  <title>DSH Mimic</title>
+  <g stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M6 26V6L16 18L21 12" stroke="currentColor"/>
+    <path d="M21 12L26 6V26" stroke="currentColor"/>
+  </g>
+</svg>
+`;
+const svgDataUri = (svg) => `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+/** A self-contained 64px color tile for panel headers and plugin metadata. */
+exports.LOGO_DATA_URI = svgDataUri(COLOR_LOGO_SVG);
+/** An unbacked currentColor mark; use as a CSS mask to inherit the surrounding theme. */
+exports.MONO_LOGO_DATA_URI = svgDataUri(MONO_LOGO_SVG);
+
+},
+"/client/index.js": function(require,module,exports) {
 "use strict";
 var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
     if (k2 === undefined) k2 = k;
@@ -43,27 +76,42 @@ const React = __importStar(require("react"));
 const types_js_1 = require("../types.js");
 const model_js_1 = require("./model.js");
 const slots_js_1 = require("./slots.js");
+const brand_js_1 = require("./brand.js");
 const styles_js_1 = require("./styles.js");
 const h = React.createElement;
 const CLIENTS = [
-    { id: 'none', label: 'None', description: '不模拟 · 请求保持原样' },
-    { id: 'claude-code', label: 'Claude Code', description: 'Anthropic Messages 客户端指纹' },
-    { id: 'codex', label: 'Codex', description: 'OpenAI Responses 客户端指纹' },
+    { id: 'none', label: '原样请求', short: 'None', description: '不模拟，保持原始请求结构' },
+    { id: 'claude-code', label: 'Claude Code', short: 'Claude', description: 'Anthropic Messages 客户端指纹' },
+    { id: 'codex', label: 'Codex', short: 'Codex', description: 'OpenAI Responses 客户端指纹' },
 ];
 const clientLabel = (client) => CLIENTS.find(item => item.id === client)?.label ?? client;
-/** Left-rail glyph (a tune/sliders mark) rendered at the size the host gives the sidebar row. */
-const SidebarIcon = ({ size = 16 }) => {
-    return h('svg', {
-        width: size, height: size, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor',
-        strokeWidth: 1.7, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true,
-    }, h('path', { d: 'M4 7h9M19 7h1M4 17h1M11 17h9' }), h('circle', { cx: 15, cy: 7, r: 2.1 }), h('circle', { cx: 9, cy: 17, r: 2.1 }));
-};
+const clientShort = (client) => CLIENTS.find(item => item.id === client)?.short ?? client;
+const SidebarIcon = ({ size = 16 }) => h('span', {
+    className: 'pcs-sidebar-logo', 'aria-hidden': true,
+    style: {
+        display: 'inline-block', flexShrink: 0, backgroundColor: 'currentColor', verticalAlign: 'middle',
+        width: size, height: size,
+        WebkitMaskPosition: 'center', maskPosition: 'center', WebkitMaskSize: 'contain', maskSize: 'contain',
+        WebkitMaskRepeat: 'no-repeat', maskRepeat: 'no-repeat',
+        WebkitMaskImage: `url("${brand_js_1.MONO_LOGO_DATA_URI}")`, maskImage: `url("${brand_js_1.MONO_LOGO_DATA_URI}")`,
+    },
+});
 function Badge(props) {
-    return h('span', { className: 'pcs-badge ' + (props.draft ? 'pcs-badge-draft' : 'pcs-badge-saved') }, props.children);
+    return h('span', { className: 'pcs-badge ' + (props.draft ? 'pcs-badge-draft' : 'pcs-badge-saved') }, h('span', { className: 'pcs-badge-dot', 'aria-hidden': true }), props.children);
 }
 function entryTime(time) {
     const date = new Date(time);
     return Number.isNaN(date.getTime()) ? time : date.toLocaleString('zh-CN', { hour12: false });
+}
+function formatTokens(value) {
+    if (value >= 1_000_000)
+        return (value / 1_000_000).toFixed(1) + 'm';
+    if (value >= 1000)
+        return (value / 1000).toFixed(1) + 'k';
+    return String(value);
+}
+function statusLabel(transport) {
+    return transport === 'active' ? '接入已就绪' : transport === 'waiting' ? '等待接入' : '暂不可用';
 }
 function ProviderClientPanel({ api: providedApi } = {}) {
     const api = React.useMemo(() => providedApi ?? (0, model_js_1.createPanelApi)(), [providedApi]);
@@ -177,47 +225,44 @@ function ProviderClientPanel({ api: providedApi } = {}) {
     };
     const button = (text, onClick, options = {}) => h('button', { type: 'button', className: 'pcs-button' + (options.primary ? ' pcs-button-primary' : '') + (options.className ? ' ' + options.className : ''),
         onClick, disabled: blocked || options.disabled }, text);
-    const providerField = form ? h('div', { className: 'pcs-field' }, h('label', { className: 'pcs-field-label', htmlFor: fieldId + '-provider' }, h('span', null, h('span', { className: 'pcs-field-step', 'aria-hidden': true }, '1'), '选择供应商')), h('select', {
+    const providerField = form ? h('div', { className: 'pcs-field' }, h('label', { className: 'pcs-field-label', htmlFor: fieldId + '-provider' }, h('span', { className: 'pcs-label-main' }, h('span', { className: 'pcs-field-step', 'aria-hidden': true }, '01'), '供应商'), selected ? h('span', { className: 'pcs-label-aside' }, selected.modelIds.length + ' 个模型') : null), h('select', {
         id: fieldId + '-provider', className: 'pcs-control', value: session.selectedProviderId,
         onChange: (event) => chooseProvider(event.currentTarget.value),
-    }, !selected && session.selectedProviderId ? h('option', { value: session.selectedProviderId, disabled: true }, '供应商已移除') : null, ...providers.map(provider => h('option', { key: provider.id, value: provider.id }, provider.label))), h('p', { className: 'pcs-help' }, selected ? selected.adapter + ' · ' + selected.modelIds.length + ' 个已配置模型' : '此供应商已从 DSH 配置移除。')) : null;
-    const clientField = form ? h('div', { className: 'pcs-field' }, h('div', { className: 'pcs-field-label', id: fieldId + '-client-label' }, h('span', null, h('span', { className: 'pcs-field-step', 'aria-hidden': true }, '2'), '选择模拟客户端')), h('div', { className: 'pcs-clients', role: 'radiogroup', 'aria-labelledby': fieldId + '-client-label' }, ...CLIENTS.map(client => h('label', { key: client.id, className: 'pcs-client' }, h('input', {
+    }, !selected && session.selectedProviderId ? h('option', { value: session.selectedProviderId, disabled: true }, '供应商已移除') : null, ...providers.map(provider => h('option', { key: provider.id, value: provider.id }, provider.label))), h('p', { className: 'pcs-help' }, selected ? selected.adapter + ' · ' + (selected.protocol ?? '自动识别') + ' · 已配置 ' + selected.modelIds.length + ' 个模型' : '此供应商已从 DSH 配置移除。')) : null;
+    const clientField = form ? h('div', { className: 'pcs-field' }, h('div', { className: 'pcs-field-label', id: fieldId + '-client-label' }, h('span', { className: 'pcs-label-main' }, h('span', { className: 'pcs-field-step', 'aria-hidden': true }, '02'), '客户端身份'), h('span', { className: 'pcs-label-aside' }, '头 + 体同步')), h('div', { className: 'pcs-clients', role: 'radiogroup', 'aria-labelledby': fieldId + '-client-label' }, ...CLIENTS.map(client => h('label', { key: client.id, className: 'pcs-client' }, h('input', {
         type: 'radio', name: fieldId + '-client', value: client.id, checked: form.client === client.id,
         onChange: () => patch((0, model_js_1.setDraftClient)(form, client.id, snapshot?.profiles ?? [])),
-    }), h('span', null, h('span', { className: 'pcs-client-name' }, client.label), h('span', { className: 'pcs-client-description' }, client.description))))), h('p', { className: 'pcs-help' }, '同一时间只模拟一个供应商：保存后，其他供应商会自动恢复为不模拟。')) : null;
+    }), h('span', { className: 'pcs-client-copy' }, h('span', { className: 'pcs-client-topline' }, h('span', { className: 'pcs-client-mark' }, client.short.slice(0, 1)), h('span', { className: 'pcs-client-name' }, client.label)), h('span', { className: 'pcs-client-description' }, client.description))))), h('p', { className: 'pcs-help' }, '保存后，其他供应商会自动恢复为原样请求。')) : null;
     const concurrencyStat = snapshot?.runtime.concurrency?.find(item => item.providerId === session.selectedProviderId);
-    const concurrencyField = form ? h('div', { className: 'pcs-field' }, h('label', { className: 'pcs-field-label', htmlFor: fieldId + '-concurrency' }, h('span', null, h('span', { className: 'pcs-field-step', 'aria-hidden': true }, '3'), '并发上限'), h('span', { className: 'pcs-small pcs-muted' }, '0 = 不限制')), h('input', {
+    const cacheStat = snapshot?.runtime.cache?.find(item => item.providerId === session.selectedProviderId);
+    const cacheLine = snapshot && session.selectedProviderId
+        ? (cacheStat && cacheStat.requests > 0
+            ? h('p', { className: 'pcs-cache' }, '缓存命中 ', h('strong', null, (cacheStat.hitRate * 100).toFixed(1) + '%'), ' · 最近 ' + cacheStat.requests + ' 次 · 输入 ' + formatTokens(cacheStat.promptTokens) + ' / 命中 ' + formatTokens(cacheStat.cachedTokens))
+            : h('p', { className: 'pcs-cache' }, '缓存命中 ', h('strong', null, '—'), ' · 等待下一次经过该供应商的请求'))
+        : null;
+    const concurrencyField = form ? h('div', { className: 'pcs-field pcs-field-compact' }, h('label', { className: 'pcs-field-label', htmlFor: fieldId + '-concurrency' }, h('span', { className: 'pcs-label-main' }, h('span', { className: 'pcs-field-step', 'aria-hidden': true }, '03'), '并发上限'), h('span', { className: 'pcs-label-aside' }, '0 = 不限制')), h('div', { className: 'pcs-inline-controls' }, h('input', {
         id: fieldId + '-concurrency', className: 'pcs-control pcs-number', type: 'number', inputMode: 'numeric',
         min: 0, max: 64, step: 1, value: form.concurrencyText, placeholder: '0',
         onChange: (event) => patch({ concurrencyText: event.currentTarget.value }),
-    }), h('label', { className: 'pcs-field-label', htmlFor: fieldId + '-concurrency-mode' }, '超出上限时'), h('select', {
-        id: fieldId + '-concurrency-mode', className: 'pcs-control', value: form.concurrencyMode,
+    }), h('select', {
+        id: fieldId + '-concurrency-mode', className: 'pcs-control', value: form.concurrencyMode, 'aria-label': '超出并发上限时',
         onChange: (event) => patch({ concurrencyMode: event.currentTarget.value === 'reject' ? 'reject' : 'queue' }),
-    }, h('option', { value: 'queue' }, '排队等待（等前面的请求结束）'), h('option', { value: 'reject' }, '直接拒绝（超限即报错，不再创建）')), h('p', { className: 'pcs-help' }, concurrencyStat
-        ? '当前并发 ' + concurrencyStat.active + ' / ' + concurrencyStat.limit + (concurrencyStat.queued ? '，排队 ' + concurrencyStat.queued : '')
-        : '限制该供应商同时在途的生成请求数（每个并行子代理各算一个）；超出后按上面的方式处理。')) : null;
-    const editor = form && providerField && clientField ? h('article', { className: 'pcs-card', 'aria-labelledby': fieldId + '-editor' }, h('div', { className: 'pcs-card-head' }, h('h3', { id: fieldId + '-editor' }, '模拟设置'), h(Badge, { draft: dirty, children: dirty ? '未保存' : '已生效' })), h('div', { className: 'pcs-card-body' }, h('fieldset', { className: 'pcs-fieldset', disabled: blocked }, providerField, clientField, concurrencyField)), h('div', { className: 'pcs-actions' }, h('span', { className: 'pcs-small pcs-muted' }, dirty ? '尚未生效' : savedRule && savedRule.client !== 'none' ? '正在生效' : '未启用模拟'), h('div', { className: 'pcs-action-buttons' }, button(busy === 'save' ? '保存中…' : '保存', save, { primary: true, disabled: !dirty || !selected || session.revisionStale })))) : null;
-    const listener = snapshot ? h('details', { className: 'pcs-card pcs-listener', 'aria-labelledby': fieldId + '-listener' }, h('summary', { id: fieldId + '-listener' }, '出站请求监听', h('span', { className: 'pcs-small pcs-muted' }, '调试 · 脱敏')), h('div', { className: 'pcs-card-body' }, h('div', { className: 'pcs-listener-toolbar' }, h('button', { type: 'button', className: 'pcs-switch', role: 'switch', 'aria-label': '出站请求监听',
+    }, h('option', { value: 'queue' }, '超限排队'), h('option', { value: 'reject' }, '超限报错'))), h('p', { className: 'pcs-help' }, concurrencyStat
+        ? '当前并发 ' + concurrencyStat.active + ' / ' + concurrencyStat.limit + (concurrencyStat.queued ? ' · 排队 ' + concurrencyStat.queued : '')
+        : '限制该供应商同时在途的生成请求数。')) : null;
+    const editor = form && providerField && clientField ? h('article', { className: 'pcs-card pcs-editor', 'aria-labelledby': fieldId + '-editor' }, h('div', { className: 'pcs-card-head' }, h('div', null, h('div', { className: 'pcs-card-kicker' }, 'CONFIGURATION'), h('h3', { id: fieldId + '-editor' }, '模拟设置')), h(Badge, { draft: dirty, children: dirty ? '未保存' : savedRule && savedRule.client !== 'none' ? '已生效' : '未启用' })), h('div', { className: 'pcs-card-body' }, h('fieldset', { className: 'pcs-fieldset', disabled: blocked }, providerField, clientField, concurrencyField)), h('div', { className: 'pcs-actions' }, h('div', { className: 'pcs-action-note' }, h('span', { className: 'pcs-action-indicator ' + (dirty ? 'is-dirty' : '') }), dirty ? '修改尚未应用' : savedRule && savedRule.client !== 'none' ? '正在拦截并转换出站请求' : '选择客户端后保存以启用'), h('div', { className: 'pcs-action-buttons' }, dirty ? button('还原', () => { setError(''); setNotice(''); setSession(model_js_1.restoreSelectedDraft); }, { className: 'pcs-button-quiet' }) : null, button(busy === 'save' ? '保存中…' : '保存更改', save, { primary: true, disabled: !dirty || !selected || session.revisionStale })))) : null;
+    const overview = snapshot ? h('aside', { className: 'pcs-overview' }, h('div', { className: 'pcs-overview-head' }, h('div', { className: 'pcs-card-kicker' }, 'LIVE OVERVIEW'), h('h3', null, '运行概览')), h('div', { className: 'pcs-overview-status ' + (transportActive ? 'is-ready' : 'is-waiting') }, h('span', { className: 'pcs-status-icon', 'aria-hidden': true }, transportActive ? '✓' : '·'), h('div', null, h('strong', null, statusLabel(snapshot.runtime.transport)), h('span', null, snapshot.runtime.detail))), h('div', { className: 'pcs-metric-grid' }, h('div', { className: 'pcs-metric' }, h('span', null, '已连接供应商'), h('strong', null, String(providers.length))), h('div', { className: 'pcs-metric' }, h('span', null, '当前模拟'), h('strong', null, simulating.length ? clientShort(simulating[0].rule.client) : '—')), h('div', { className: 'pcs-metric' }, h('span', null, '监听记录'), h('strong', null, String(snapshot.entries.length))), h('div', { className: 'pcs-metric' }, h('span', null, '注册挂载'), h('strong', null, String(snapshot.runtime.registrations)))), h('div', { className: 'pcs-rule-list' }, h('div', { className: 'pcs-section-caption' }, 'ACTIVE ROUTES'), simulating.length ? simulating.map(({ provider, rule }) => h('button', { type: 'button', key: provider.id, className: 'pcs-route', disabled: blocked, onClick: () => chooseProvider(provider.id) }, h('span', { className: 'pcs-route-mark' }, clientShort(rule.client).slice(0, 1)), h('span', { className: 'pcs-route-copy' }, h('strong', null, provider.label), h('small', null, clientLabel(rule.client))), h('span', { className: 'pcs-route-arrow' }, '→')))
+        : h('p', { className: 'pcs-overview-empty' }, '还没有启用模拟路由。')), h('div', { className: 'pcs-overview-foot' }, h('img', { src: brand_js_1.LOGO_DATA_URI, alt: '', 'aria-hidden': true }), h('span', null, '身份字段在同一请求中原子变换'))) : null;
+    const listener = snapshot ? h('details', { className: 'pcs-card pcs-listener', 'aria-labelledby': fieldId + '-listener' }, h('summary', { id: fieldId + '-listener' }, h('span', { className: 'pcs-summary-icon' }, '◌'), h('span', null, '出站请求监听'), h('span', { className: 'pcs-small pcs-muted' }, '调试 · 脱敏'), h('span', { className: 'pcs-summary-count' }, snapshot.entries.length + ' 条')), h('div', { className: 'pcs-card-body' }, h('div', { className: 'pcs-listener-toolbar' }, h('button', { type: 'button', className: 'pcs-switch', role: 'switch', 'aria-label': '出站请求监听',
         'aria-checked': listenerEnabled, disabled: blocked || session.revisionStale || (!listenerEnabled && !transportActive),
-        onClick: () => { void run('listener', { action: 'listener', enabled: !listenerEnabled, revision: snapshot.config.revision }); } }, h('span', { className: 'pcs-switch-track', 'aria-hidden': true }, h('span', { className: 'pcs-switch-knob' })), busy === 'listener' ? '更新中…' : listenerEnabled ? '监听中' : '已关闭'), h('span', { className: 'pcs-small pcs-muted' }, snapshot.entries.length + ' 条记录 · 上限 ' + snapshot.config.listener.maxEntries), h('div', { className: 'pcs-action-buttons' }, button(busy === 'logs' ? '读取中…' : '读取记录', () => { void run('logs', { action: 'logs' }); }), button(busy === 'clear' ? '清空中…' : '清空', () => { void run('clear', { action: 'clear' }); }, { disabled: !snapshot.entries.length, className: 'pcs-button-danger' }))), !transportActive ? h('p', { className: 'pcs-help' }, '出站接入尚未就绪：' + snapshot.runtime.detail) : null, snapshot.entries.length ? h('div', { className: 'pcs-log-list' }, ...snapshot.entries.slice().reverse().map(entry => h('details', { key: entry.id, className: 'pcs-log' }, h('summary', null, (snapshot.providers.find(provider => provider.id === entry.providerId)?.label ?? '供应商') + ' · ' + entry.modelId + ' · ' + entryTime(entry.time)), h('div', { className: 'pcs-log-content' }, h('div', { className: 'pcs-log-meta' }, h('span', null, clientLabel(entry.client) + ' · ' + entry.profile), h('span', null, entry.protocol + ' → ' + entry.targetProtocol), entry.status !== undefined ? h('span', null, 'HTTP ' + entry.status) : null), h('p', { className: 'pcs-help pcs-code' }, entry.url), entry.error ? h('p', { className: 'pcs-validation' }, entry.error) : null, h('div', { className: 'pcs-log-label' }, '请求头 · 已脱敏'), h('pre', null, JSON.stringify(entry.headers, null, 2)), h('div', { className: 'pcs-log-label' }, '请求体 · 结构与指纹摘要'), h('pre', null, JSON.stringify(entry.body, null, 2))))))
+        onClick: () => { void run('listener', { action: 'listener', enabled: !listenerEnabled, revision: snapshot.config.revision }); } }, h('span', { className: 'pcs-switch-track', 'aria-hidden': true }, h('span', { className: 'pcs-switch-knob' })), busy === 'listener' ? '更新中…' : listenerEnabled ? '监听中' : '已关闭'), h('span', { className: 'pcs-small pcs-muted' }, '上限 ' + snapshot.config.listener.maxEntries), h('div', { className: 'pcs-action-buttons' }, button(busy === 'logs' ? '读取中…' : '读取记录', () => { void run('logs', { action: 'logs' }); }), button(busy === 'clear' ? '清空中…' : '清空', () => { void run('clear', { action: 'clear' }); }, { disabled: !snapshot.entries.length, className: 'pcs-button-danger' }))), !transportActive ? h('p', { className: 'pcs-help' }, '出站接入尚未就绪：' + snapshot.runtime.detail) : null, snapshot.entries.length ? h('div', { className: 'pcs-log-list' }, ...snapshot.entries.slice().reverse().map(entry => h('details', { key: entry.id, className: 'pcs-log' }, h('summary', null, h('span', { className: 'pcs-log-dot' }), (snapshot.providers.find(provider => provider.id === entry.providerId)?.label ?? '供应商') + ' · ' + entry.modelId + ' · ' + entryTime(entry.time)), h('div', { className: 'pcs-log-content' }, h('div', { className: 'pcs-log-meta' }, h('span', null, clientLabel(entry.client) + ' · ' + entry.profile), h('span', null, entry.protocol + ' → ' + entry.targetProtocol), entry.status !== undefined ? h('span', null, 'HTTP ' + entry.status) : null), h('p', { className: 'pcs-help pcs-code' }, entry.url), entry.error ? h('p', { className: 'pcs-validation' }, entry.error) : null, h('div', { className: 'pcs-log-label' }, '请求头 · 已脱敏'), h('pre', null, JSON.stringify(entry.headers, null, 2)), h('div', { className: 'pcs-log-label' }, '请求体 · 结构与指纹摘要'), h('pre', null, JSON.stringify(entry.body, null, 2))))))
         : h('p', { className: 'pcs-help' }, listenerEnabled ? '正常使用后点「读取记录」查看实际出站摘要。' : '开启监听后才会记录出站请求。'))) : null;
-    return h('section', { className: 'pcs-root', 'aria-labelledby': fieldId + '-title', 'aria-busy': blocked }, h('style', null, styles_js_1.PANEL_CSS), h('header', { className: 'pcs-hero' }, h('div', null, h('div', { className: 'pcs-eyebrow' }, h('span', { className: 'pcs-dot', 'aria-hidden': true }), '单供应商模拟 · 保存即生效'), h('h2', { className: 'pcs-title', id: fieldId + '-title' }, slots_js_1.PANEL_TITLE, h('span', { className: 'pcs-version' }, 'v' + types_js_1.PLUGIN_VERSION)), h('p', { className: 'pcs-subtitle' }, '选一个供应商和一个客户端，保存即生效。')), h('button', { type: 'button', className: 'pcs-button pcs-refresh', disabled: blocked,
-        onClick: () => { void run('refresh', { action: 'state' }); } }, busy === 'refresh' ? h('span', { className: 'pcs-spin', 'aria-hidden': true }) : null, busy === 'refresh' ? '刷新中…' : '刷新')), snapshot ? h('div', { className: 'pcs-current' + (simulating.length ? '' : ' pcs-current-idle') }, h('span', { className: 'pcs-current-label' }, '当前模拟'), simulating.length
-        ? h('div', { className: 'pcs-current-list' }, ...simulating.map(({ provider, rule }) => h('button', {
-            type: 'button', key: provider.id, className: 'pcs-current-chip', disabled: blocked,
-            'aria-pressed': provider.id === session.selectedProviderId,
-            onClick: () => chooseProvider(provider.id),
-        }, h('strong', null, provider.label), h('span', null, clientLabel(rule.client) + ' · ' + (rule.profile ?? '默认 profile') + (rule.concurrency ? ' · 并发 ' + rule.concurrency : '')))))
-        : h('span', { className: 'pcs-current-idle-text' }, '未启用（不模拟任何客户端）')) : null, session.revisionStale ? h('div', { className: 'pcs-banner pcs-banner-warning', role: 'alert' }, h('div', null, h('strong', null, '配置已更新'), h('p', null, '请点刷新后再保存。'))) : null, error ? h('div', { className: 'pcs-banner pcs-banner-error', role: 'alert' }, error) : null, notice ? h('div', { className: 'pcs-banner pcs-banner-success', role: 'status' }, notice) : null, !snapshot ? h('div', { className: 'pcs-empty' }, h('strong', null, busy === 'refresh' ? '正在读取' : '尚未读取状态'), busy === 'refresh' ? '正在读取当前 DSH 供应商配置。' : '点右上角刷新重试。') : null, snapshot && !providers.length && !form ? h('div', { className: 'pcs-empty' }, h('strong', null, '尚无已配置供应商'), '先在 DSH 供应商设置里配置模型连接，再刷新此面板。') : null, editor, listener, h('p', { className: 'pcs-footer' }, 'v' + types_js_1.PLUGIN_VERSION + ' · 已连接 ' + providers.length + ' 个供应商 · 出站接入 ' + (transportActive ? '已就绪' : '未就绪')
-        + (lastRead ? ' · 最近读取 ' + lastRead : '')));
+    return h('section', { className: 'pcs-root', 'aria-labelledby': fieldId + '-title', 'aria-busy': blocked }, h('style', null, styles_js_1.PANEL_CSS), h('header', { className: 'pcs-hero' }, h('div', { className: 'pcs-brand-lockup' }, h('img', { className: 'pcs-brand-logo', src: brand_js_1.LOGO_DATA_URI, alt: '' }), h('div', null, h('div', { className: 'pcs-eyebrow' }, 'DSH PLUGIN · WIRE IDENTITY'), h('h2', { className: 'pcs-title', id: fieldId + '-title' }, slots_js_1.PANEL_TITLE, h('span', { className: 'pcs-version' }, 'v' + types_js_1.PLUGIN_VERSION)), h('p', { className: 'pcs-subtitle' }, '为指定供应商选择客户端身份，头与体在同一次出站请求中同步生效。'))), h('button', { type: 'button', className: 'pcs-button pcs-refresh', disabled: blocked, onClick: () => { void run('refresh', { action: 'state' }); } }, busy === 'refresh' ? h('span', { className: 'pcs-spin', 'aria-hidden': true }) : h('span', { className: 'pcs-refresh-icon', 'aria-hidden': true }, '↻'), busy === 'refresh' ? '刷新中…' : '刷新')), snapshot ? h('div', { className: 'pcs-current' + (simulating.length ? '' : ' pcs-current-idle') }, h('div', { className: 'pcs-current-heading' }, h('span', { className: 'pcs-live-dot', 'aria-hidden': true }), h('span', null, '当前模拟')), simulating.length
+        ? h('div', { className: 'pcs-current-list' }, ...simulating.map(({ provider, rule }) => h('button', { type: 'button', key: provider.id, className: 'pcs-current-chip', disabled: blocked, 'aria-pressed': provider.id === session.selectedProviderId, onClick: () => chooseProvider(provider.id) }, h('strong', null, provider.label), h('span', null, clientLabel(rule.client) + ' · ' + (rule.profile ?? '默认 profile') + (rule.concurrency ? ' · 并发 ' + rule.concurrency : '')))))
+        : h('span', { className: 'pcs-current-idle-text' }, '未启用 · 选择下方客户端开始模拟')) : null, cacheLine, session.revisionStale ? h('div', { className: 'pcs-banner pcs-banner-warning', role: 'alert' }, h('div', null, h('strong', null, '配置已更新'), h('p', null, '请点刷新后再保存。'))) : null, error ? h('div', { className: 'pcs-banner pcs-banner-error', role: 'alert' }, error) : null, notice ? h('div', { className: 'pcs-banner pcs-banner-success', role: 'status' }, notice) : null, !snapshot ? h('div', { className: 'pcs-empty' }, h('div', { className: 'pcs-empty-logo' }, h('img', { src: brand_js_1.LOGO_DATA_URI, alt: '' })), h('strong', null, busy === 'refresh' ? '正在连接 DSH' : '尚未读取状态'), busy === 'refresh' ? '正在读取当前供应商配置。' : '点右上角刷新重试。') : null, snapshot && !providers.length && !form ? h('div', { className: 'pcs-empty' }, h('div', { className: 'pcs-empty-logo' }, h('img', { src: brand_js_1.LOGO_DATA_URI, alt: '' })), h('strong', null, '尚无已配置供应商'), '先在 DSH 供应商设置里配置模型连接，再刷新此面板。') : null, snapshot && form ? h('div', { className: 'pcs-layout' }, editor, overview) : null, listener, h('p', { className: 'pcs-footer' }, h('span', null, 'dsh-mimic · v' + types_js_1.PLUGIN_VERSION), h('span', null, providers.length + ' 个供应商 · 出站接入 ' + (transportActive ? '已就绪' : '未就绪') + (lastRead ? ' · 最近读取 ' + lastRead : ''))));
 }
 exports.name = types_js_1.PLUGIN_NAME;
-/**
- * Cordis service dependencies of the browser half. `slots` must be declared here: cordis throws
- * `cannot get property "slots" without inject` on an undeclared service read, which leaves the
- * plugin fiber stuck in `loading` and silently drops every slot registration (this is exactly the
- * shape shipped by dshmarket — `const inject = ["slots","locale","theme"]` at client.js:25690).
- */
+/** Cordis browser service dependency. */
 exports.inject = [slots_js_1.SLOT_SERVICE_ID];
 function apply(ctx) {
     (0, slots_js_1.registerClientUi)(ctx, {
@@ -508,7 +553,8 @@ function projectPanelState(state) {
         config: { schemaVersion: 1, revision: state.config.revision, providers: rules,
             listener: { enabled: state.config.listener.enabled, maxEntries: state.config.listener.maxEntries } },
         runtime: { transport: state.runtime.transport, registrations: state.runtime.registrations, detail: redactText(state.runtime.detail),
-            ...(state.runtime.concurrency ? { concurrency: state.runtime.concurrency.map(item => ({ providerId: item.providerId, limit: item.limit, active: item.active, queued: item.queued })) } : {}) },
+            ...(state.runtime.concurrency ? { concurrency: state.runtime.concurrency.map(item => ({ providerId: item.providerId, limit: item.limit, active: item.active, queued: item.queued })) } : {}),
+            ...(state.runtime.cache ? { cache: state.runtime.cache.map(item => ({ providerId: item.providerId, requests: item.requests, promptTokens: item.promptTokens, cachedTokens: item.cachedTokens, hitRate: item.hitRate })) } : {}) },
         profiles: state.profiles.map(profile => ({ id: profile.id, client: profile.client, version: profile.version,
             label: profile.label, evidence: redactText(profile.evidence) })),
         entries: state.entries.map(redactListenerEntry),
@@ -645,6 +691,16 @@ function validConcurrencyStats(value) {
         && Number.isSafeInteger(item.limit) && Number(item.limit) >= 0 && Number(item.limit) <= 64
         && Number.isSafeInteger(item.active) && Number.isSafeInteger(item.queued));
 }
+function validCacheStats(value) {
+    if (value === undefined)
+        return true;
+    return Array.isArray(value) && value.every(item => isObject(item)
+        && typeof item.providerId === 'string'
+        && Number.isSafeInteger(item.requests) && Number(item.requests) >= 0
+        && Number.isSafeInteger(item.promptTokens) && Number(item.promptTokens) >= 0
+        && Number.isSafeInteger(item.cachedTokens) && Number(item.cachedTokens) >= 0
+        && typeof item.hitRate === 'number' && Number.isFinite(item.hitRate) && item.hitRate >= 0 && item.hitRate <= 1);
+}
 function validPanelState(value) {
     if (!isObject(value) || !isObject(value.config) || !isObject(value.runtime))
         return false;
@@ -654,7 +710,7 @@ function validPanelState(value) {
         || !Number.isSafeInteger(config.listener.maxEntries) || Number(config.listener.maxEntries) < 0
         || !['active', 'waiting', 'unsupported'].includes(String(value.runtime.transport))
         || typeof value.runtime.detail !== 'string' || !Number.isSafeInteger(value.runtime.registrations)
-        || !validConcurrencyStats(value.runtime.concurrency))
+        || !validConcurrencyStats(value.runtime.concurrency) || !validCacheStats(value.runtime.cache))
         return false;
     return Object.values(config.providers).every(rule => isObject(rule) && ['none', 'claude-code', 'codex'].includes(String(rule.client))
         && (rule.profile === undefined || typeof rule.profile === 'string')
@@ -775,164 +831,215 @@ function registerClientUi(ctx, render) {
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.PANEL_CSS = void 0;
-exports.PANEL_CSS = String.raw `.pcs-root {
-  --pcs-fg-fallback: #172336; --pcs-muted-fallback: #64748b;
-  --pcs-bg-fallback: #ffffff; --pcs-layer-fallback: #f6f8fc; --pcs-border-fallback: #e1e6ee;
+exports.PANEL_CSS = String.raw `
+.pcs-root {
+  --pcs-fg-fallback: #162d37; --pcs-muted-fallback: #70838d;
+  --pcs-bg-fallback: #fff; --pcs-layer-fallback: #f5f8f9; --pcs-border-fallback: #e3eaed;
   --pcs-fg: var(--dsw-alias-label-primary, var(--pcs-fg-fallback));
   --pcs-muted: var(--dsw-alias-label-secondary, var(--pcs-muted-fallback));
   --pcs-bg: var(--dsw-alias-bg-layer-1, var(--pcs-bg-fallback));
   --pcs-layer: var(--dsw-alias-bg-layer-2, var(--pcs-layer-fallback));
   --pcs-border: var(--dsw-alias-border-l1, var(--pcs-border-fallback));
-  --pcs-brand: var(--dsw-alias-brand-primary, #5265de);
-  --pcs-success: var(--dsw-alias-state-success-primary, #178654);
-  --pcs-warn: var(--dsw-alias-state-warn-primary, #a16207);
-  --pcs-error: var(--dsw-alias-state-error-primary, #c43e4a);
-  container-type: inline-size; box-sizing: border-box; width: 100%; max-width: 1040px;
-  color: var(--pcs-fg); font: inherit; font-size: 13px; line-height: 1.6;
+  --pcs-brand: #0f8177; --pcs-button-fill: #0d8176; --pcs-warn: #a66a13; --pcs-error: #c04450;
+  --pcs-soft: color-mix(in srgb, var(--pcs-brand) 6%, var(--pcs-bg));
+  --pcs-shadow: 0 4px 20px #173d4910;
+  container-type: inline-size; box-sizing: border-box; width: 100%; max-width: 1200px; margin: 0 auto;
+  padding: 30px 28px 22px; color: var(--pcs-fg); font: 13px/1.6 Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', 'PingFang SC', sans-serif;
+  -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
 }
 @media (prefers-color-scheme: dark) {
-  .pcs-root { --pcs-fg-fallback: #e5eaf3; --pcs-muted-fallback: #a1adc0;
-    --pcs-bg-fallback: #171d29; --pcs-layer-fallback: #1d2534; --pcs-border-fallback: #343e50; }
+  .pcs-root { --pcs-fg-fallback: #e2ebee; --pcs-muted-fallback: #9baeb7; --pcs-bg-fallback: #18272e; --pcs-layer-fallback: #1d3038; --pcs-border-fallback: #33434b; --pcs-brand: #5dc9ba; --pcs-warn: #e8b35b; --pcs-error: #f28d98; --pcs-shadow: 0 4px 20px #00000020; }
 }
+[data-theme="dark"] .pcs-root, .dark .pcs-root { --pcs-fg-fallback: #e2ebee; --pcs-muted-fallback: #9baeb7; --pcs-bg-fallback: #18272e; --pcs-layer-fallback: #1d3038; --pcs-border-fallback: #33434b; --pcs-brand: #5dc9ba; --pcs-warn: #e8b35b; --pcs-error: #f28d98; --pcs-shadow: 0 4px 20px #00000020; }
+[data-theme="light"] .pcs-root, .light .pcs-root { --pcs-fg-fallback: #162d37; --pcs-muted-fallback: #70838d; --pcs-bg-fallback: #fff; --pcs-layer-fallback: #f5f8f9; --pcs-border-fallback: #e3eaed; --pcs-brand: #0f8177; --pcs-warn: #a66a13; --pcs-error: #c04450; --pcs-shadow: 0 4px 20px #173d4910; }
 .pcs-root *, .pcs-root *::before, .pcs-root *::after { box-sizing: border-box; }
 .pcs-root button, .pcs-root input, .pcs-root select, .pcs-root textarea { font: inherit; }
 .pcs-root button { cursor: pointer; }
-.pcs-root button:disabled { cursor: default; opacity: .5; }
-.pcs-root button:focus-visible, .pcs-root select:focus-visible, .pcs-root textarea:focus-visible,
-.pcs-root input:focus-visible, .pcs-root summary:focus-visible {
-  outline: 2px solid var(--pcs-brand); outline-offset: 3px;
-}
-.pcs-root h2, .pcs-root h3, .pcs-root h4, .pcs-root p { margin: 0; }
-.pcs-hero { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; margin-bottom: 18px; }
-.pcs-eyebrow { display: flex; align-items: center; gap: 7px; color: var(--pcs-brand); font-size: 11px; font-weight: 650; letter-spacing: .04em; margin-bottom: 6px; }
-.pcs-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; flex-shrink: 0; }
-.pcs-root .pcs-title { font-size: 23px; line-height: 1.35; font-weight: 700; letter-spacing: -.035em; }
-.pcs-subtitle { max-width: 600px; margin-top: 8px !important; color: var(--pcs-muted); line-height: 1.75; }
-.pcs-button { border: 1px solid var(--pcs-border); border-radius: 8px; background: var(--pcs-bg); color: var(--pcs-fg); padding: 7px 12px; line-height: 1.4; display: inline-flex; align-items: center; justify-content: center; gap: 6px; white-space: nowrap; min-height: 34px; transition: border-color 120ms ease, background 120ms ease; }
-.pcs-button:hover:not(:disabled) { border-color: var(--pcs-brand); background: color-mix(in srgb, var(--pcs-brand) 5%, var(--pcs-bg)); }
-.pcs-button-primary { border-color: var(--pcs-brand); background: var(--pcs-brand); color: #fff; font-weight: 650; }
-.pcs-button-primary:hover:not(:disabled) { background: color-mix(in srgb, var(--pcs-brand) 90%, #000); }
-.pcs-button-quiet { border-color: transparent; background: transparent; color: var(--pcs-muted); }
-.pcs-button-danger { color: var(--pcs-error); }
-.pcs-refresh { flex-shrink: 0; margin-top: 24px; }
-.pcs-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-bottom: 16px; }
-.pcs-stat { min-width: 0; border: 1px solid var(--pcs-border); background: var(--pcs-layer); border-radius: 10px; padding: 11px 13px; }
-.pcs-stat-label { color: var(--pcs-muted); font-size: 11px; margin-bottom: 3px; }
-.pcs-stat-value { display: flex; align-items: center; gap: 7px; font-size: 14px; font-weight: 650; overflow-wrap: anywhere; }
-.pcs-muted { color: var(--pcs-muted); }
-.pcs-small { font-size: 11px; }
-.pcs-banner { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 11px 13px; border: 1px solid var(--pcs-border); border-radius: 9px; margin-bottom: 14px; overflow-wrap: anywhere; }
-.pcs-banner-warning { color: var(--pcs-warn); border-color: color-mix(in srgb, var(--pcs-warn) 36%, var(--pcs-border)); background: color-mix(in srgb, var(--pcs-warn) 6%, var(--pcs-bg)); }
-.pcs-banner-error { color: var(--pcs-error); border-color: color-mix(in srgb, var(--pcs-error) 36%, var(--pcs-border)); background: color-mix(in srgb, var(--pcs-error) 6%, var(--pcs-bg)); }
-.pcs-banner-success { color: var(--pcs-success); border-color: color-mix(in srgb, var(--pcs-success) 32%, var(--pcs-border)); background: color-mix(in srgb, var(--pcs-success) 5%, var(--pcs-bg)); }
-.pcs-current { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; padding: 10px 13px; margin-bottom: 14px; border: 1px solid color-mix(in srgb, var(--pcs-success) 34%, var(--pcs-border)); background: color-mix(in srgb, var(--pcs-success) 5%, var(--pcs-bg)); border-radius: 9px; }
-.pcs-current-idle { border-color: var(--pcs-border); background: var(--pcs-layer); }
-.pcs-current-label { font-size: 11px; font-weight: 650; color: var(--pcs-success); flex-shrink: 0; }
-.pcs-current-idle .pcs-current-label { color: var(--pcs-muted); }
-.pcs-current-list { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
-.pcs-current-chip { display: inline-flex; align-items: center; gap: 7px; max-width: 100%; border: 1px solid color-mix(in srgb, var(--pcs-success) 40%, var(--pcs-border)); background: var(--pcs-bg); color: var(--pcs-fg); border-radius: 999px; padding: 3px 11px; font-size: 11px; overflow-wrap: anywhere; }
-.pcs-current-chip strong { font-weight: 650; }
-.pcs-current-chip span { color: var(--pcs-muted); }
-.pcs-current-chip:hover:not(:disabled) { border-color: var(--pcs-success); }
-.pcs-current-chip[aria-pressed="true"] { border-color: var(--pcs-success); background: color-mix(in srgb, var(--pcs-success) 9%, var(--pcs-bg)); }
-.pcs-current-idle-text { font-size: 11px; color: var(--pcs-muted); }
-.pcs-grid { display: grid; grid-template-columns: minmax(0, 1.65fr) minmax(220px, 1fr); gap: 16px; align-items: start; }
-.pcs-card { min-width: 0; border: 1px solid var(--pcs-border); border-radius: 12px; background: var(--pcs-bg); overflow: hidden; }
-.pcs-card-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 13px 16px; border-bottom: 1px solid var(--pcs-border); }
-.pcs-card-head h3 { font-size: 14px; font-weight: 650; }
-.pcs-card-body { padding: 16px; }
-.pcs-badge { display: inline-flex; align-items: center; gap: 5px; flex-shrink: 0; padding: 2px 7px; font-size: 10px; line-height: 1.6; border: 1px solid var(--pcs-border); color: var(--pcs-muted); border-radius: 5px; }
-.pcs-badge-saved { color: var(--pcs-success); border-color: color-mix(in srgb, var(--pcs-success) 30%, var(--pcs-border)); background: color-mix(in srgb, var(--pcs-success) 5%, transparent); }
-.pcs-badge-draft { color: var(--pcs-warn); border-color: color-mix(in srgb, var(--pcs-warn) 30%, var(--pcs-border)); background: color-mix(in srgb, var(--pcs-warn) 5%, transparent); }
-.pcs-fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
-.pcs-field { display: block; margin-bottom: 18px; }
-.pcs-field-label { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; font-weight: 650; margin-bottom: 7px; }
-.pcs-field-step { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 6px; background: var(--pcs-layer); border: 1px solid var(--pcs-border); color: var(--pcs-muted); font-size: 10px; margin-right: 7px; }
-.pcs-control { width: 100%; min-width: 0; color: var(--pcs-fg); background: var(--pcs-layer); border: 1px solid var(--pcs-border); border-radius: 8px; padding: 9px 10px; outline: 0; }
-.pcs-control:focus { border-color: var(--pcs-brand); }
-.pcs-control:disabled { opacity: .65; }
-.pcs-number { max-width: 150px; }
-.pcs-code { font-family: ui-monospace, SFMono-Regular, Consolas, monospace !important; font-size: 11px !important; }
-.pcs-textarea { display: block; resize: vertical; line-height: 1.65; min-height: 85px; tab-size: 2; }
-.pcs-instructions { min-height: 130px; }
-.pcs-help { margin-top: 6px !important; font-size: 11px; color: var(--pcs-muted); line-height: 1.75; overflow-wrap: anywhere; }
-.pcs-clients { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
-.pcs-client { position: relative; display: flex; align-items: flex-start; gap: 8px; padding: 11px 9px; min-width: 0; border: 1px solid var(--pcs-border); border-radius: 9px; background: var(--pcs-bg); cursor: pointer; }
-.pcs-client:has(input:checked) { border-color: var(--pcs-brand); background: color-mix(in srgb, var(--pcs-brand) 6%, var(--pcs-bg)); }
-.pcs-client input { margin: 3px 0 0; accent-color: var(--pcs-brand); width: 13px; height: 13px; flex-shrink: 0; }
-.pcs-client-name { display: block; font-size: 12px; font-weight: 650; line-height: 1.6; }
-.pcs-client-description { display: block; font-size: 10px; color: var(--pcs-muted); line-height: 1.7; margin-top: 3px; }
-.pcs-check { display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 600; cursor: pointer; }
-.pcs-check input { accent-color: var(--pcs-brand); width: 14px; height: 14px; }
-.pcs-models { margin-top: 10px; }
-.pcs-model-options { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
-.pcs-model-chip { color: var(--pcs-muted); background: var(--pcs-layer); border: 1px solid var(--pcs-border); border-radius: 5px; padding: 3px 7px; overflow-wrap: anywhere; font-size: 10px; max-width: 100%; }
-.pcs-model-chip[aria-pressed="true"] { color: var(--pcs-brand); border-color: color-mix(in srgb, var(--pcs-brand) 50%, var(--pcs-border)); background: color-mix(in srgb, var(--pcs-brand) 6%, var(--pcs-bg)); }
-.pcs-advanced { border-top: 1px solid var(--pcs-border); padding-top: 12px; margin-top: 14px; }
-.pcs-advanced > summary { cursor: pointer; color: var(--pcs-muted); font-size: 12px; font-weight: 600; }
-.pcs-advanced[open] > summary { color: var(--pcs-fg); margin-bottom: 12px; }
-.pcs-advanced-note { padding: 9px 10px; margin-bottom: 14px !important; background: var(--pcs-layer); border-radius: 7px; font-size: 11px; color: var(--pcs-muted); }
-.pcs-effective { margin-top: 12px; border: 1px dashed var(--pcs-border); padding: 10px 11px; border-radius: 8px; }
-.pcs-effective-label { font-size: 10px; color: var(--pcs-muted); margin-bottom: 5px; }
-.pcs-effective strong { font-size: 12px; font-weight: 600; }
-.pcs-actions { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 16px; background: var(--pcs-layer); border-top: 1px solid var(--pcs-border); }
-.pcs-action-buttons { display: flex; align-items: center; gap: 7px; }
-.pcs-validation { color: var(--pcs-error); font-size: 11px; margin: 10px 0 0 !important; }
-.pcs-rules { display: grid; gap: 8px; }
-.pcs-rule { display: block; text-align: left; width: 100%; min-width: 0; background: var(--pcs-bg); color: var(--pcs-fg); border: 1px solid var(--pcs-border); border-radius: 9px; padding: 11px 12px; transition: border-color 120ms ease; }
-.pcs-rule:hover:not(:disabled), .pcs-rule[aria-pressed="true"] { border-color: var(--pcs-brand); }
-.pcs-rule[aria-pressed="true"] { background: color-mix(in srgb, var(--pcs-brand) 4%, var(--pcs-bg)); }
-.pcs-rule-name { display: flex; align-items: center; justify-content: space-between; gap: 7px; font-size: 12px; font-weight: 650; margin-bottom: 6px; }
-.pcs-rule-title { min-width: 0; overflow-wrap: anywhere; }
-.pcs-rule-client { font-size: 11px; font-weight: 600; }
-.pcs-rule-meta { margin-top: 4px; color: var(--pcs-muted); font-size: 10px; line-height: 1.6; overflow-wrap: anywhere; }
-.pcs-listener { margin-top: 16px; }
-.pcs-listener-head { align-items: flex-start; flex-wrap: wrap; }
-.pcs-listener-head h3 { display: flex; align-items: center; gap: 8px; }
-.pcs-switch { border: 1px solid var(--pcs-border); background: var(--pcs-layer); color: var(--pcs-muted); border-radius: 7px; display: inline-flex; align-items: center; gap: 9px; padding: 6px 10px; font-size: 11px; }
-.pcs-switch-track { width: 27px; height: 15px; border-radius: 12px; background: var(--pcs-border); padding: 2px; display: inline-flex; }
-.pcs-switch-knob { width: 11px; height: 11px; background: var(--pcs-bg); border-radius: 50%; }
-.pcs-switch[aria-checked="true"] { color: var(--pcs-success); }
-.pcs-switch[aria-checked="true"] .pcs-switch-track { background: var(--pcs-success); justify-content: flex-end; }
-.pcs-listener-toolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; margin-bottom: 13px; }
-.pcs-log-list { display: grid; gap: 8px; }
-.pcs-log { min-width: 0; background: var(--pcs-layer); border: 1px solid var(--pcs-border); border-radius: 8px; overflow: hidden; }
-.pcs-log > summary { padding: 10px 12px; cursor: pointer; font-size: 11px; overflow-wrap: anywhere; }
-.pcs-log-content { border-top: 1px solid var(--pcs-border); padding: 12px; }
-.pcs-log-meta { display: flex; gap: 6px 14px; flex-wrap: wrap; color: var(--pcs-muted); font-size: 10px; margin-bottom: 9px; }
-.pcs-log-label { font-size: 10px; font-weight: 650; margin-top: 10px; margin-bottom: 5px; }
-.pcs-log pre { margin: 0; max-height: 260px; max-width: 100%; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--pcs-fg); border: 1px solid var(--pcs-border); background: var(--pcs-bg); padding: 10px; border-radius: 6px; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 10px; line-height: 1.7; }
-.pcs-empty { text-align: center; padding: 26px 16px; color: var(--pcs-muted); background: var(--pcs-layer); border: 1px dashed var(--pcs-border); border-radius: 9px; }
-.pcs-empty strong { display: block; margin-bottom: 5px; color: var(--pcs-fg); font-size: 12px; font-weight: 600; }
-.pcs-footer { margin-top: 13px; color: var(--pcs-muted); font-size: 10px; text-align: right; }
-.pcs-title { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.pcs-version { font-size: 11px; font-weight: 600; letter-spacing: 0; color: var(--pcs-muted); border: 1px solid var(--pcs-border); border-radius: 999px; padding: 2px 8px; }
-.pcs-listener > summary { cursor: pointer; font-size: 12px; font-weight: 650; padding: 10px 14px; display: flex; align-items: center; gap: 8px; }
-.pcs-listener[open] > summary { border-bottom: 1px solid var(--pcs-border); }
-.pcs-spin { width: 12px; height: 12px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; display: inline-block; animation: pcs-spin .8s linear infinite; }
+.pcs-root button:disabled { cursor: default; opacity: .45; }
+.pcs-root :is(button, select, input, summary):focus-visible { outline: 2px solid var(--pcs-brand); outline-offset: 3px; }
+.pcs-root :is(.pcs-listener, .pcs-log) > summary:focus-visible { outline-offset: -3px; }
+.pcs-root :is(h2, h3, p) { margin: 0; }
+.pcs-root .pcs-hero { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin-bottom: 27px; }
+.pcs-root .pcs-brand-lockup { display: flex; align-items: center; gap: 16px; min-width: 0; }
+.pcs-root .pcs-brand-logo { display: block; width: 60px; height: 60px; flex: 0 0 60px; filter: drop-shadow(0 5px 9px #0f81771a); }
+.pcs-root .pcs-eyebrow { margin-bottom: 5px; color: var(--pcs-brand); font-size: 11px; font-weight: 700; letter-spacing: .17em; line-height: 1.5; }
+.pcs-root .pcs-title { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; font-size: 24px; line-height: 1.4; font-weight: 700; letter-spacing: -.035em; color: var(--pcs-fg); }
+.pcs-root .pcs-version { padding: 2px 7px; border: 1px solid var(--pcs-border); border-radius: 6px; color: var(--pcs-muted); font-size: 11px; letter-spacing: 0; font-weight: 550; line-height: 1.6; background: var(--pcs-bg); }
+.pcs-root .pcs-subtitle { margin-top: 6px; color: var(--pcs-muted); font-size: 12px; line-height: 1.7; }
+.pcs-root .pcs-button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 36px; padding: 7px 14px; border: 1px solid var(--pcs-border); border-radius: 8px; color: var(--pcs-fg); background: var(--pcs-bg); line-height: 1.5; font-size: 13px; font-weight: 550; white-space: nowrap; box-shadow: 0 1px 2px #173d4905; transition: border-color .15s, background .15s, box-shadow .15s; }
+.pcs-root .pcs-button:hover:not(:disabled) { border-color: color-mix(in srgb, var(--pcs-brand) 65%, var(--pcs-border)); background: var(--pcs-soft); }
+.pcs-root .pcs-button-primary { background: var(--pcs-button-fill); border-color: var(--pcs-button-fill); color: #fff; min-width: 104px; box-shadow: 0 3px 7px #0d81761a; }
+.pcs-root .pcs-button-primary:hover:not(:disabled) { background: #096e65; border-color: #096e65; box-shadow: 0 4px 10px #0d81762b; }
+.pcs-root .pcs-button-quiet { border-color: transparent; background: transparent; color: var(--pcs-muted); box-shadow: none; }
+.pcs-root .pcs-button-danger { color: var(--pcs-error); }
+.pcs-root .pcs-refresh { flex: 0 0 auto; min-height: 34px; font-size: 12px; padding: 6px 12px; }
+.pcs-root .pcs-refresh-icon { display: inline-block; font-size: 19px; line-height: 1; font-family: 'Segoe UI Symbol', sans-serif; }
+.pcs-root .pcs-current { display: flex; align-items: center; flex-wrap: wrap; gap: 12px 22px; padding: 14px 18px; border: 1px solid color-mix(in srgb, var(--pcs-brand) 22%, var(--pcs-border)); border-radius: 11px; background: var(--pcs-soft); }
+.pcs-root .pcs-current-heading { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 650; color: var(--pcs-brand); white-space: nowrap; }
+.pcs-root .pcs-live-dot { width: 6px; height: 6px; background: var(--pcs-brand); border-radius: 50%; box-shadow: 0 0 0 4px color-mix(in srgb, var(--pcs-brand) 10%, transparent); }
+.pcs-root .pcs-current-list { display: flex; flex-wrap: wrap; min-width: 0; gap: 7px; }
+.pcs-root .pcs-current-chip { display: inline-flex; align-items: center; flex-wrap: wrap; text-align: left; gap: 4px 11px; max-width: 100%; padding: 0; color: var(--pcs-fg); background: transparent; border: 0; border-radius: 4px; font-size: 12px; overflow-wrap: anywhere; }
+.pcs-root .pcs-current-chip strong { font-size: 13px; font-weight: 650; }
+.pcs-root .pcs-current-chip span { color: var(--pcs-muted); }
+.pcs-root .pcs-current-chip:hover:not(:disabled) strong { color: var(--pcs-brand); }
+.pcs-root .pcs-current-idle { background: var(--pcs-layer); border-color: var(--pcs-border); }
+.pcs-root .pcs-current-idle :is(.pcs-current-heading, .pcs-current-idle-text) { color: var(--pcs-muted); font-size: 12px; }
+.pcs-root .pcs-current-idle .pcs-live-dot { background: var(--pcs-muted); box-shadow: none; }
+.pcs-root .pcs-cache { margin: 9px 3px 19px; font-size: 11px; color: var(--pcs-muted); }
+.pcs-root .pcs-cache strong { color: var(--pcs-brand); font-weight: 650; margin-left: 3px; font-variant-numeric: tabular-nums; }
+.pcs-root .pcs-banner { padding: 10px 13px; border: 1px solid var(--pcs-border); border-radius: 8px; margin-bottom: 16px; font-size: 12px; overflow-wrap: anywhere; }
+.pcs-root .pcs-banner-success { color: var(--pcs-brand); border-color: color-mix(in srgb, var(--pcs-brand) 25%, var(--pcs-border)); background: var(--pcs-soft); }
+.pcs-root .pcs-banner-warning { color: var(--pcs-warn); border-color: color-mix(in srgb, var(--pcs-warn) 28%, var(--pcs-border)); background: color-mix(in srgb, var(--pcs-warn) 5%, var(--pcs-bg)); }
+.pcs-root .pcs-banner-error { color: var(--pcs-error); border-color: color-mix(in srgb, var(--pcs-error) 28%, var(--pcs-border)); background: color-mix(in srgb, var(--pcs-error) 5%, var(--pcs-bg)); }
+.pcs-root .pcs-layout { display: grid; grid-template-columns: minmax(0, 1fr) 260px; gap: 20px; align-items: start; }
+.pcs-root .pcs-card { min-width: 0; border: 1px solid var(--pcs-border); border-radius: 13px; background: var(--pcs-bg); overflow: hidden; box-shadow: var(--pcs-shadow); }
+.pcs-root .pcs-card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 20px 24px 18px; border-bottom: 1px solid var(--pcs-border); }
+.pcs-root .pcs-card-kicker { color: var(--pcs-muted); font-size: 10px; line-height: 1.4; font-weight: 650; letter-spacing: .16em; margin-bottom: 5px; }
+.pcs-root :is(.pcs-card-head, .pcs-overview-head) h3 { color: var(--pcs-fg); font-size: 15px; line-height: 1.5; font-weight: 650; letter-spacing: -.01em; }
+.pcs-root .pcs-card-body { padding: 22px 24px; }
+.pcs-root .pcs-badge { display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--pcs-border); border-radius: 999px; padding: 3px 8px; font-size: 11px; line-height: 1.5; white-space: nowrap; }
+.pcs-root .pcs-badge-saved { color: var(--pcs-brand); background: var(--pcs-soft); border-color: color-mix(in srgb, var(--pcs-brand) 21%, var(--pcs-border)); }
+.pcs-root .pcs-badge-draft { color: var(--pcs-warn); background: color-mix(in srgb, var(--pcs-warn) 5%, var(--pcs-bg)); border-color: color-mix(in srgb, var(--pcs-warn) 25%, var(--pcs-border)); }
+.pcs-root .pcs-badge-dot { height: 4px; width: 4px; background: currentColor; border-radius: 50%; }
+.pcs-root .pcs-fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
+.pcs-root .pcs-field { margin-bottom: 25px; min-width: 0; }
+.pcs-root .pcs-field:last-child { margin-bottom: 0; }
+.pcs-root .pcs-field-label { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; color: var(--pcs-fg); margin-bottom: 9px; font-size: 13px; font-weight: 600; }
+.pcs-root .pcs-label-main { display: inline-flex; align-items: center; gap: 9px; }
+.pcs-root .pcs-field-step { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 6px; background: var(--pcs-layer); color: var(--pcs-brand); border: 1px solid var(--pcs-border); font-size: 11px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.pcs-root .pcs-label-aside { color: var(--pcs-muted); font-size: 11px; font-weight: 400; }
+.pcs-root .pcs-control { display: block; width: 100%; min-width: 0; min-height: 42px; padding: 9px 12px; background: var(--pcs-layer); color: var(--pcs-fg); border: 1px solid var(--pcs-border); border-radius: 8px; font-size: 13px; line-height: 1.6; outline: 0; transition: border-color .15s, box-shadow .15s; }
+.pcs-root .pcs-control:focus { border-color: var(--pcs-brand); box-shadow: 0 0 0 3px color-mix(in srgb, var(--pcs-brand) 8%, transparent); }
+.pcs-root select.pcs-control { padding-right: 30px; text-overflow: ellipsis; }
+.pcs-root .pcs-control:disabled { opacity: .65; }
+.pcs-root .pcs-help { margin-top: 7px; font-size: 11px; color: var(--pcs-muted); line-height: 1.75; overflow-wrap: anywhere; }
+.pcs-root .pcs-clients { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; }
+.pcs-root .pcs-client { position: relative; display: block; min-width: 0; padding: 15px 12px 13px; color: var(--pcs-fg); background: var(--pcs-bg); border: 1px solid var(--pcs-border); border-radius: 9px; cursor: pointer; transition: background .15s, border-color .15s, box-shadow .15s; }
+.pcs-root .pcs-client:hover { border-color: color-mix(in srgb, var(--pcs-brand) 55%, var(--pcs-border)); }
+.pcs-root .pcs-client:has(input:checked) { border-color: var(--pcs-brand); background: var(--pcs-soft); box-shadow: 0 0 0 1px color-mix(in srgb, var(--pcs-brand) 10%, transparent); }
+.pcs-root .pcs-client input { position: absolute; top: 13px; right: 11px; width: 12px; height: 12px; margin: 0; accent-color: var(--pcs-brand); }
+.pcs-root .pcs-client:has(input:focus-visible) { outline: 2px solid var(--pcs-brand); outline-offset: 3px; }
+.pcs-root .pcs-client:has(input:disabled) { cursor: default; opacity: .6; }
+.pcs-root .pcs-client-copy { display: block; min-width: 0; }
+.pcs-root .pcs-client-topline { display: flex; flex-direction: column; gap: 10px; }
+.pcs-root .pcs-client-mark { display: inline-flex; align-items: center; justify-content: center; width: 27px; height: 27px; color: var(--pcs-muted); background: var(--pcs-layer); border: 1px solid var(--pcs-border); border-radius: 7px; font-size: 13px; font-weight: 700; }
+.pcs-root .pcs-client:has(input:checked) .pcs-client-mark { background: var(--pcs-button-fill); border-color: var(--pcs-button-fill); color: #fff; }
+.pcs-root .pcs-client-name { font-size: 12px; font-weight: 650; }
+.pcs-root .pcs-client-description { display: block; margin-top: 4px; color: var(--pcs-muted); font-size: 11px; line-height: 1.7; }
+.pcs-root .pcs-inline-controls { display: grid; grid-template-columns: 108px minmax(0, 1fr); gap: 10px; }
+.pcs-root .pcs-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; border-top: 1px solid var(--pcs-border); background: var(--pcs-layer); padding: 15px 24px; }
+.pcs-root .pcs-action-note { display: flex; align-items: center; gap: 6px; color: var(--pcs-muted); font-size: 11px; line-height: 1.5; }
+.pcs-root .pcs-action-indicator { display: inline-block; flex: 0 0 5px; width: 5px; height: 5px; background: var(--pcs-brand); border-radius: 50%; }
+.pcs-root .pcs-action-indicator.is-dirty { background: var(--pcs-warn); }
+.pcs-root .pcs-action-buttons { display: flex; align-items: center; gap: 7px; }
+.pcs-root .pcs-overview { min-width: 0; border: 1px solid var(--pcs-border); border-radius: 13px; background: var(--pcs-layer); overflow: hidden; }
+.pcs-root .pcs-overview-head { padding: 22px 20px 17px; }
+.pcs-root .pcs-overview-status { display: flex; align-items: flex-start; gap: 9px; padding: 0 20px 18px; }
+.pcs-root .pcs-status-icon { display: inline-flex; flex: 0 0 23px; width: 23px; height: 23px; align-items: center; justify-content: center; margin-top: 2px; border-radius: 50%; color: var(--pcs-brand); background: color-mix(in srgb, var(--pcs-brand) 10%, var(--pcs-layer)); font-size: 13px; font-weight: 600; }
+.pcs-root .pcs-overview-status strong { display: block; font-size: 12px; font-weight: 600; line-height: 1.8; color: var(--pcs-brand); }
+.pcs-root .pcs-overview-status div > span { display: block; font-size: 11px; color: var(--pcs-muted); line-height: 1.7; overflow-wrap: anywhere; }
+.pcs-root .is-waiting .pcs-status-icon { background: color-mix(in srgb, var(--pcs-warn) 10%, var(--pcs-layer)); color: var(--pcs-warn); }
+.pcs-root .is-waiting strong { color: var(--pcs-warn); }
+.pcs-root .pcs-metric-grid { display: grid; grid-template-columns: 1fr 1fr; margin: 0 20px; border-top: 1px solid var(--pcs-border); border-bottom: 1px solid var(--pcs-border); padding: 16px 0; gap: 17px 10px; }
+.pcs-root .pcs-metric { min-width: 0; }
+.pcs-root .pcs-metric > span { display: block; font-size: 11px; color: var(--pcs-muted); margin-bottom: 3px; }
+.pcs-root .pcs-metric > strong { display: block; font-size: 20px; line-height: 1.4; letter-spacing: -.04em; font-weight: 600; color: var(--pcs-fg); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.pcs-root .pcs-metric:nth-child(2) > strong { font-size: 17px; line-height: 1.65; letter-spacing: -.02em; }
+.pcs-root .pcs-rule-list { padding: 18px 20px 20px; }
+.pcs-root .pcs-section-caption { font-size: 10px; color: var(--pcs-muted); font-weight: 650; letter-spacing: .13em; margin-bottom: 10px; }
+.pcs-root .pcs-route { display: flex; align-items: center; gap: 9px; padding: 10px; width: 100%; text-align: left; border: 1px solid var(--pcs-border); border-radius: 8px; background: var(--pcs-bg); color: var(--pcs-fg); }
+.pcs-root .pcs-route + .pcs-route { margin-top: 8px; }
+.pcs-root .pcs-route:hover:not(:disabled) { border-color: var(--pcs-brand); }
+.pcs-root .pcs-route-mark { display: flex; align-items: center; justify-content: center; flex: 0 0 26px; width: 26px; height: 26px; border-radius: 7px; font-size: 12px; font-weight: 700; color: var(--pcs-brand); background: var(--pcs-soft); }
+.pcs-root .pcs-route-copy { display: block; min-width: 0; flex: 1; }
+.pcs-root .pcs-route-copy strong { display: block; font-size: 11px; font-weight: 600; overflow-wrap: anywhere; }
+.pcs-root .pcs-route-copy small { display: block; color: var(--pcs-muted); font-size: 11px; }
+.pcs-root .pcs-route-arrow { color: var(--pcs-muted); font-size: 13px; }
+.pcs-root .pcs-overview-empty { font-size: 11px; color: var(--pcs-muted); }
+.pcs-root .pcs-overview-foot { display: flex; align-items: center; gap: 7px; padding: 13px 20px; border-top: 1px solid var(--pcs-border); font-size: 11px; color: var(--pcs-muted); }
+.pcs-root .pcs-overview-foot img { display: block; width: 16px; height: 16px; }
+.pcs-root .pcs-listener { margin-top: 20px; box-shadow: none; }
+.pcs-root .pcs-listener > summary { display: flex; align-items: center; gap: 9px; list-style: none; padding: 17px 20px; cursor: pointer; font-size: 13px; font-weight: 600; color: var(--pcs-fg); }
+.pcs-root .pcs-listener > summary::-webkit-details-marker { display: none; }
+.pcs-root .pcs-listener > summary::after { content: '⌄'; color: var(--pcs-muted); font-size: 16px; margin-left: 4px; transition: transform .15s; }
+.pcs-root .pcs-listener[open] > summary { border-bottom: 1px solid var(--pcs-border); }
+.pcs-root .pcs-listener[open] > summary::after { transform: rotate(180deg); }
+.pcs-root .pcs-summary-icon { display: flex; align-items: center; justify-content: center; width: 25px; height: 25px; border-radius: 7px; color: var(--pcs-brand); background: var(--pcs-soft); font-size: 20px; font-weight: 400; }
+.pcs-root .pcs-summary-count { margin-left: auto; font-size: 11px; font-weight: 500; color: var(--pcs-muted); background: var(--pcs-layer); border-radius: 5px; padding: 2px 7px; }
+.pcs-root .pcs-switch { border: 1px solid var(--pcs-border); background: var(--pcs-layer); color: var(--pcs-muted); border-radius: 7px; display: inline-flex; align-items: center; gap: 8px; padding: 6px 10px; font-size: 12px; }
+.pcs-root .pcs-switch-track { width: 29px; height: 17px; border-radius: 12px; background: var(--pcs-border); padding: 2px; display: inline-flex; }
+.pcs-root .pcs-switch-knob { width: 13px; height: 13px; background: var(--pcs-bg); border-radius: 50%; box-shadow: 0 1px 2px #0002; }
+.pcs-root .pcs-switch[aria-checked="true"] { color: var(--pcs-brand); }
+.pcs-root .pcs-switch[aria-checked="true"] .pcs-switch-track { background: var(--pcs-button-fill); justify-content: flex-end; }
+.pcs-root .pcs-listener-toolbar { display: flex; align-items: center; flex-wrap: wrap; justify-content: space-between; gap: 10px; margin-bottom: 16px; }
+.pcs-root .pcs-log-list { display: grid; gap: 9px; }
+.pcs-root .pcs-log { min-width: 0; background: var(--pcs-layer); border: 1px solid var(--pcs-border); border-radius: 8px; overflow: hidden; }
+.pcs-root .pcs-log > summary { padding: 11px 13px; cursor: pointer; font-size: 11px; overflow-wrap: anywhere; }
+.pcs-root .pcs-log-dot { display: inline-block; width: 5px; height: 5px; border-radius: 50%; margin-right: 7px; background: var(--pcs-brand); }
+.pcs-root .pcs-log-content { border-top: 1px solid var(--pcs-border); padding: 14px; }
+.pcs-root .pcs-log-meta { display: flex; flex-wrap: wrap; gap: 7px 15px; color: var(--pcs-muted); font-size: 11px; margin-bottom: 9px; }
+.pcs-root .pcs-log-label { font-size: 11px; font-weight: 600; margin: 12px 0 6px; }
+.pcs-root .pcs-log pre { margin: 0; max-height: 260px; max-width: 100%; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--pcs-fg); border: 1px solid var(--pcs-border); background: var(--pcs-bg); padding: 11px; border-radius: 7px; font: 10px/1.75 ui-monospace, SFMono-Regular, Consolas, monospace; }
+.pcs-root .pcs-code { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 11px; }
+.pcs-root .pcs-validation { color: var(--pcs-error); font-size: 12px; margin-top: 9px; }
+.pcs-root .pcs-empty { text-align: center; padding: 38px 20px; margin-top: 10px; color: var(--pcs-muted); background: var(--pcs-layer); border: 1px dashed var(--pcs-border); border-radius: 13px; font-size: 12px; }
+.pcs-root .pcs-empty strong { display: block; margin: 12px 0 5px; color: var(--pcs-fg); font-size: 14px; font-weight: 600; }
+.pcs-root .pcs-empty-logo img { width: 36px; height: 36px; opacity: .8; }
+.pcs-root .pcs-footer { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-top: 17px; padding: 0 2px; color: var(--pcs-muted); font-size: 11px; }
+.pcs-root .pcs-muted { color: var(--pcs-muted); }
+.pcs-root .pcs-small { font-size: 11px; font-weight: 400; }
+.pcs-root .pcs-spin { width: 12px; height: 12px; border: 1.7px solid currentColor; border-right-color: transparent; border-radius: 50%; display: inline-block; animation: pcs-spin .8s linear infinite; }
 @keyframes pcs-spin { to { transform: rotate(360deg); } }
-@media (prefers-reduced-motion: reduce) { .pcs-spin { animation: none; } .pcs-root button { transition: none; } }
-@container (max-width: 800px) {
-  .pcs-grid { grid-template-columns: minmax(0, 1fr); }
-  .pcs-rules { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.pcs-root .pcs-sidebar-logo { display: inline-block; flex: 0 0 auto; background-color: currentColor; -webkit-mask-position: center; mask-position: center; -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat; -webkit-mask-size: contain; mask-size: contain; vertical-align: middle; }
+@container (max-width: 850px) {
+  .pcs-root .pcs-layout { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+  .pcs-root .pcs-overview { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .pcs-root .pcs-overview-head { padding-bottom: 10px; }
+  .pcs-root .pcs-overview-status { grid-column: 1; padding-top: 0; }
+  .pcs-root .pcs-metric-grid { grid-column: 2; grid-row: 1 / span 2; align-content: center; border: 0; border-left: 1px solid var(--pcs-border); padding-left: 20px; margin: 17px 20px 17px 0; }
+  .pcs-root .pcs-rule-list { grid-column: 1 / -1; padding: 0 20px 18px; }
+  .pcs-root .pcs-overview-foot { grid-column: 1 / -1; }
 }
 @container (max-width: 520px) {
-  .pcs-hero { gap: 10px; flex-wrap: wrap; }
-  .pcs-title { font-size: 21px !important; }
-  .pcs-refresh { margin-top: 0; }
-  .pcs-stats { grid-template-columns: minmax(0, 1fr); gap: 6px; }
-  .pcs-stat { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 11px; }
-  .pcs-stat-label { margin-bottom: 0; }
-  .pcs-stat-value { font-size: 12px; }
-  .pcs-card-body { padding: 13px; }
-  .pcs-card-head { padding: 11px 13px; }
-  .pcs-clients, .pcs-rules { grid-template-columns: minmax(0, 1fr); }
-  .pcs-client { padding: 8px 10px; }
-  .pcs-client-description { margin-top: 0; }
-  .pcs-actions { padding: 11px 13px; flex-wrap: wrap; }
-  .pcs-action-buttons { width: 100%; justify-content: flex-end; }
-  .pcs-banner { flex-wrap: wrap; }
+  .pcs-root .pcs-hero { align-items: flex-start; gap: 10px; margin-bottom: 20px; }
+  .pcs-root .pcs-brand-lockup { gap: 10px; align-items: flex-start; }
+  .pcs-root .pcs-brand-logo { width: 40px; height: 40px; flex-basis: 40px; }
+  .pcs-root .pcs-eyebrow { font-size: 10px; letter-spacing: .1em; margin-bottom: 3px; }
+  .pcs-root .pcs-title { font-size: 18px; gap: 6px; }
+  .pcs-root .pcs-version { font-size: 10px; padding: 1px 5px; }
+  .pcs-root .pcs-subtitle { font-size: 11px; margin-top: 6px; }
+  .pcs-root .pcs-refresh { font-size: 11px; padding: 5px 8px; min-height: 30px; }
+  .pcs-root .pcs-refresh-icon { font-size: 17px; }
+  .pcs-root .pcs-current { padding: 12px 14px; gap: 9px; }
+  .pcs-root .pcs-current-chip { gap: 3px 8px; }
+  .pcs-root .pcs-current-chip strong { font-size: 13px; }
+  .pcs-root .pcs-current-chip span { font-size: 11px; }
+  .pcs-root .pcs-card-head { padding: 16px; }
+  .pcs-root .pcs-card-body { padding: 18px 16px; }
+  .pcs-root .pcs-field { margin-bottom: 22px; }
+  .pcs-root .pcs-clients { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .pcs-root .pcs-client { padding: 12px; }
+  .pcs-root .pcs-client-topline { flex-direction: row; align-items: center; gap: 9px; padding-right: 15px; }
+  .pcs-root .pcs-client-description { margin-left: 36px; margin-top: -3px; font-size: 11px; }
+  .pcs-root .pcs-client input { top: 20px; right: 14px; }
+  .pcs-root .pcs-client-mark { width: 25px; height: 25px; flex: 0 0 25px; }
+  .pcs-root .pcs-inline-controls { grid-template-columns: 88px minmax(0, 1fr); }
+  .pcs-root .pcs-actions { padding: 14px 16px; flex-wrap: wrap; gap: 12px; }
+  .pcs-root .pcs-action-buttons { margin-left: auto; }
+  .pcs-root .pcs-overview { display: block; }
+  .pcs-root .pcs-metric-grid { border: 0; border-top: 1px solid var(--pcs-border); border-bottom: 1px solid var(--pcs-border); margin: 0 20px; padding: 16px 0; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+  .pcs-root .pcs-metric > span { font-size: 10px; }
+  .pcs-root .pcs-metric > strong { font-size: 18px; }
+  .pcs-root .pcs-metric:nth-child(2) > strong { font-size: 14px; }
+  .pcs-root .pcs-rule-list { padding-top: 16px; }
+  .pcs-root .pcs-listener > summary { padding: 14px 16px; gap: 7px; font-size: 12px; }
+  .pcs-root .pcs-listener > summary .pcs-small { font-size: 11px; }
+  .pcs-root .pcs-summary-icon { width: 22px; height: 22px; font-size: 18px; }
+  .pcs-root .pcs-listener-toolbar { justify-content: flex-start; }
+  .pcs-root .pcs-footer { font-size: 10px; }
 }
+@media (max-width: 620px) { .pcs-root { padding: 20px 14px 18px; } }
+@media (prefers-reduced-motion: reduce) { .pcs-root *, .pcs-root *::before, .pcs-root *::after { animation: none !important; transition: none !important; } }
 `;
 
 },
@@ -942,7 +1049,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.API_PATH = exports.SETTINGS_NS = exports.PLUGIN_VERSION = exports.PLUGIN_NAME = void 0;
 exports.PLUGIN_NAME = 'dsh-mimic';
 /** Build replaces this marker with package.json version; the test suite asserts they match. */
-exports.PLUGIN_VERSION = '0.3.1';
+exports.PLUGIN_VERSION = '0.3.5';
 exports.SETTINGS_NS = 'dsh-mimic';
 exports.API_PATH = '/dsh-mimic/api';
 /** RPC: state {}; save {providerId,rule,revision}; listener {enabled,revision}; logs {}; clear {}. */

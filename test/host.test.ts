@@ -9,6 +9,7 @@ import { discoverProviders } from '../src/host/providers.js';
 import { RequestListener } from '../src/host/listener.js';
 import { installTransport, detectProtocol } from '../src/host/transport.js';
 import { ProviderLimiter } from '../src/host/limiter.js';
+import { CacheMetrics, extractUsage } from '../src/host/metrics.js';
 import type { TransportLease, TransportScope } from '../src/host/transport.js';
 import type { LlmDirectory, SettingsHost, SettingsDescriptor } from '../src/host/contracts.js';
 import { API_PATH, SETTINGS_NS } from '../src/types.js';
@@ -273,7 +274,8 @@ test('local HTTP capture validates the source-default CLI layout separately from
     assert.match(body.system[0].text, /^x-anthropic-billing-header: cc_version=2\.1\.63\.[a-f0-9]{3}; cc_entrypoint=cli; cch=00000;$/);
     assert.equal(body.system[0].cache_control, undefined);
     assert.equal(body.system[1].text, "You are Claude Code, Anthropic's official CLI for Claude.");
-    assert.equal(body.system[1].cache_control?.type, 'ephemeral');
+    assert.equal(body.system[1].cache_control, undefined);
+    assert.equal(body.system[2].cache_control?.type, 'ephemeral');
     assert.ok(body.system.every(block => block.cache_control?.ttl === undefined));
     assert.match(body.metadata.user_id, /^user_[a-f0-9]{64}_account__session_[a-f0-9-]{36}$/);
     assert.ok(JSON.stringify(body.messages).includes('用户原始文字：proxy_read 与日期 2026-11-25 保持原样。'));
@@ -366,4 +368,19 @@ test('concurrency reject mode fails the extra stream immediately instead of queu
   assert.deepEqual(limiter.usage('p'), { active: 1, queued: 0 });
   second();
   assert.deepEqual(limiter.usage('p'), { active: 0, queued: 0 });
+});
+
+test('cache usage is parsed from SSE and JSON replies with a bounded scan', () => {
+  const sse = 'event: message_start\ndata: {"type":"message_start","message":{"usage":{"input_tokens":12,"cache_read_input_tokens":980,"cache_creation_input_tokens":0}}}\n\nevent: message_delta\ndata: {"type":"message_delta","usage":{"output_tokens":5}}\n\n';
+  assert.deepEqual(extractUsage(sse), { prompt: 12, cached: 980, written: 0 });
+  const json = '{"usage":{"input_tokens":1000,"input_tokens_details":{"cached_tokens":750},"output_tokens":20}}';
+  assert.deepEqual(extractUsage(json), { prompt: 1000, cached: 750, written: 0 });
+  assert.equal(extractUsage('no usage here'), undefined);
+  const metrics = new CacheMetrics();
+  metrics.ingest('p', json); metrics.ingest('p', json); metrics.ingest('q', sse);
+  const snapshot = metrics.snapshot();
+  assert.deepEqual(snapshot.find(item => item.providerId === 'p'), { providerId: 'p', requests: 2, promptTokens: 2000, cachedTokens: 1500, hitRate: 0.75 });
+  assert.equal(snapshot.find(item => item.providerId === 'q')!.hitRate, 1);
+  metrics.clear();
+  assert.deepEqual(metrics.snapshot(), []);
 });

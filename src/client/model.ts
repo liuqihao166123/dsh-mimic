@@ -231,7 +231,8 @@ export function projectPanelState(state: PanelState | PublicPanelState): PublicP
     config: { schemaVersion: 1, revision: state.config.revision, providers: rules,
       listener: { enabled: state.config.listener.enabled, maxEntries: state.config.listener.maxEntries } },
     runtime: { transport: state.runtime.transport, registrations: state.runtime.registrations, detail: redactText(state.runtime.detail),
-      ...(state.runtime.concurrency ? { concurrency: state.runtime.concurrency.map(item => ({ providerId: item.providerId, limit: item.limit, active: item.active, queued: item.queued })) } : {}) },
+      ...(state.runtime.concurrency ? { concurrency: state.runtime.concurrency.map(item => ({ providerId: item.providerId, limit: item.limit, active: item.active, queued: item.queued })) } : {}),
+      ...(state.runtime.cache ? { cache: state.runtime.cache.map(item => ({ providerId: item.providerId, requests: item.requests, promptTokens: item.promptTokens, cachedTokens: item.cachedTokens, hitRate: item.hitRate })) } : {}) },
     profiles: state.profiles.map(profile => ({ id: profile.id, client: profile.client, version: profile.version,
       label: profile.label, evidence: redactText(profile.evidence) })),
     entries: state.entries.map(redactListenerEntry),
@@ -354,6 +355,15 @@ function validConcurrencyStats(value: unknown): boolean {
     && Number.isSafeInteger(item.limit) && Number(item.limit) >= 0 && Number(item.limit) <= 64
     && Number.isSafeInteger(item.active) && Number.isSafeInteger(item.queued));
 }
+function validCacheStats(value: unknown): boolean {
+  if (value === undefined) return true;
+  return Array.isArray(value) && value.every(item => isObject(item)
+    && typeof item.providerId === 'string'
+    && Number.isSafeInteger(item.requests) && Number(item.requests) >= 0
+    && Number.isSafeInteger(item.promptTokens) && Number(item.promptTokens) >= 0
+    && Number.isSafeInteger(item.cachedTokens) && Number(item.cachedTokens) >= 0
+    && typeof item.hitRate === 'number' && Number.isFinite(item.hitRate) && item.hitRate >= 0 && item.hitRate <= 1);
+}
 function validPanelState(value: unknown): value is PanelState {
   if (!isObject(value) || !isObject(value.config) || !isObject(value.runtime)) return false;
   const config = value.config;
@@ -362,7 +372,7 @@ function validPanelState(value: unknown): value is PanelState {
     || !Number.isSafeInteger(config.listener.maxEntries) || Number(config.listener.maxEntries) < 0
     || !['active', 'waiting', 'unsupported'].includes(String(value.runtime.transport))
     || typeof value.runtime.detail !== 'string' || !Number.isSafeInteger(value.runtime.registrations)
-    || !validConcurrencyStats(value.runtime.concurrency)) return false;
+    || !validConcurrencyStats(value.runtime.concurrency) || !validCacheStats(value.runtime.cache)) return false;
   return Object.values(config.providers).every(rule => isObject(rule) && ['none', 'claude-code', 'codex'].includes(String(rule.client))
     && (rule.profile === undefined || typeof rule.profile === 'string')
     && (rule.modelIds === undefined || stringList(rule.modelIds))

@@ -125,8 +125,31 @@ function claudeBody(body: JsonObject, profile: ClaudeProfile, ids: ReturnType<ty
   const system = array(body.system, 'system');
   const eligible = system.map((b,index) => isObject(b) && typeof b.text === 'string' && b.text.length && (profile.cache.placement !== 'source-org' || index !== 0) ? index : -1).filter(index => index >= 0);
   const max = Math.max(0, Math.min(4, profile.cache.maxBreakpoints));
-  const indices = eligible.length <= max ? eligible : [...eligible.slice(0, Math.max(0, max - 1)), eligible[eligible.length - 1]];
-  if (max) for (const index of indices) object(system[index], 'system block').cache_control = { type: profile.cache.type, ...(profile.cache.ttl ? {ttl:profile.cache.ttl} : {}) };
+  const marker = { type: profile.cache.type, ...(profile.cache.ttl ? {ttl:profile.cache.ttl} : {}) };
+  // Cache reads are prefix based, so the slot that matters is the one closest to the newest content:
+  // it lets each turn reuse the whole previous prompt instead of re-writing the conversation.
+  const movingSlot = max >= 2 ? 1 : 0;
+  const systemSlots = max - movingSlot;
+  const indices = eligible.length <= systemSlots ? eligible : [...eligible.slice(0, Math.max(0, systemSlots - 1)), eligible[eligible.length - 1]];
+  if (systemSlots > 0) for (const index of indices) object(system[index], 'system block').cache_control = { ...marker };
+  let remaining = max - indices.length;
+  if (remaining > 0) {
+    const messages = array(body.messages, 'messages');
+    for (let i = messages.length - 1; i >= 0 && remaining > 0; i -= 1) {
+      const message = messages[i];
+      if (!isObject(message) || !Array.isArray(message.content)) continue;
+      const content = message.content;
+      const last = content[content.length - 1];
+      if (!isObject(last) || (last.type !== 'text' && last.type !== 'tool_result')) continue;
+      last.cache_control = { ...marker };
+      remaining -= 1;
+      break;
+    }
+  }
+  if (remaining > 0 && Array.isArray(body.tools)) {
+    const lastTool = body.tools[body.tools.length - 1];
+    if (isObject(lastTool)) { lastTool.cache_control = { ...marker }; remaining -= 1; }
+  }
   const meta = metadata(body);
   meta.user_id = profile.metadataFormat === 'json' ? JSON.stringify({device_id:ids.device,account_uuid:ids.account,session_id:ids.session}) : 'user_' + ids.device + '_account_' + ids.account + '_session_' + ids.session;
   return renameClaudeTools(body);
@@ -144,6 +167,9 @@ function codexBody(body: JsonObject, profile: CodexProfile, context: TransformCo
   }
   delete body.base_instructions;
   body.instructions = profile.instructions;
+  // Prefix caching is sharded by this key: real Codex pins it to the conversation, while a
+  // per-request value silently disables cache reuse behind a relay.
+  body.prompt_cache_key = session;
   const meta = metadata(body);
   // Existing business metadata is retained verbatim, including existing source/session/cwd values.
   if (meta.session_id === undefined) meta.session_id = session;

@@ -6,6 +6,8 @@ export interface TransportScope {
     accountId: string;
     baseUrl?: string;
     record: (result: TransformResult, context: TransformContext) => ListenerEntry | undefined;
+    /** Passive usage tap; bounded to the first 4 MiB of the reply and never allowed to fail a request. */
+    usage?: (text: string) => void;
     onError: (code: string) => void;
 }
 export declare function detectProtocol(url: string): WireProtocol | undefined;

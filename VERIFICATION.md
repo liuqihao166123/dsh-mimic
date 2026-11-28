@@ -226,3 +226,31 @@ ext()）时才申请槽位，因此排队中的请求不占用上游连接；lim
 - 适用场景：会话里并行派生子代理时，每个子代理各占一个在途生成槽位；设为 reject 后，超过上限的子代理请求直接失败，而不是静默等待。
 - 面板：「3 并发上限」下新增「超出上限时」下拉（排队等待 / 直接拒绝）。
 - 测试：	est/host.test.ts 新增 reject 立即失败用例；	est/client.test.ts 新增 mode 往返用例。主套件 188 / runtime 10 全绿。
+
+## 0.3.2 缓存命中率优化
+
+改动三处：Claude 断点重分配（system 尾块 + 最新 message 块 + 工具）、Codex `prompt_cache_key` 固定为会话 id、宿主 usage 统计与面板展示。
+
+验证命令：
+
+```bash
+pnpm run typecheck      # tsc --noEmit
+pnpm test               # 189/189
+DSH_RUNTIME_MODULE_ROOT=%TEMP%\dsh-rt\out\dsh\node_modules pnpm run test:runtime   # 10/10
+```
+
+契约变更（有意为之，均已写入测试）：
+
+- `test/core.test.ts` ChatsA「Anthropic cache breakpoints are bounded at four」→ `system` 命中 3 个断点 + 最新 message 的 `tool_result` 块 1 个，`tools[0]` 不再占位。
+- `test/core.test.ts`「SOURCE org cache groups main text」→ `s[1]` 不再带断点，`s[2]` 带 `{type:'ephemeral'}`（无 ttl），最新 message 文本块带断点。
+- `test/core.test.ts` codex 用例新增 `prompt_cache_key === SESSION` 断言。
+- `test/host.test.ts` 新增 `cache usage is parsed from SSE and JSON replies with a bounded scan`。
+
+真实链路上游实测（千刀公益 `api666.zzzcoding.org`，`gpt-6.1-sol`，6,041 input tokens，同前缀连发两次）：
+
+| 轮次 | input_tokens | cached_tokens |
+|---|---|---|
+| 1 | 6041 | 0 |
+| 2 | 6041 | 5888（97.5%） |
+
+说明网关确实透传上游前缀缓存；命中率低的主因在请求结构（断点位置 + 缓存键），不是网关。
