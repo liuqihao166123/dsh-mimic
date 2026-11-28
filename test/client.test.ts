@@ -85,7 +85,7 @@ test('client UI registers the settings section, the main page, and the left-rail
   assert.equal(sidebar.descriptor.label?.(), PANEL_TITLE);
   assert.equal(sidebar.render, icon);
   assert.equal(PANEL_ID, PLUGIN_NAME);
-  assert.equal(PANEL_TITLE, '供应商客户端模拟');
+  assert.equal(PANEL_TITLE, '客户端模拟');
 });
 test('missing or incomplete slot service produces no invented mount path', () => {
   const renderers = { panel: () => null, icon: () => null };

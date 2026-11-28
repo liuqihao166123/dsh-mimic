@@ -778,7 +778,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.PANEL_ID = exports.MAIN_SLOT_ID = exports.SIDEBAR_SLOT_ID = exports.SETTINGS_SLOT_ID = exports.SLOT_SERVICE_ID = exports.PANEL_TITLE = void 0;
 exports.registerClientUi = registerClientUi;
 const types_js_1 = require("../types.js");
-exports.PANEL_TITLE = '供应商客户端模拟';
+exports.PANEL_TITLE = '客户端模拟';
 exports.SLOT_SERVICE_ID = 'slots';
 exports.SETTINGS_SLOT_ID = 'settings.section';
 exports.SIDEBAR_SLOT_ID = 'sidebar.panellist';
@@ -1049,7 +1049,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.API_PATH = exports.SETTINGS_NS = exports.PLUGIN_VERSION = exports.PLUGIN_NAME = void 0;
 exports.PLUGIN_NAME = 'dsh-mimic';
 /** Build replaces this marker with package.json version; the test suite asserts they match. */
-exports.PLUGIN_VERSION = '0.3.5';
+exports.PLUGIN_VERSION = '0.3.6';
 exports.SETTINGS_NS = 'dsh-mimic';
 exports.API_PATH = '/dsh-mimic/api';
 /** RPC: state {}; save {providerId,rule,revision}; listener {enabled,revision}; logs {}; clear {}. */

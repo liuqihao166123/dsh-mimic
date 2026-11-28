@@ -1,7 +1,7 @@
 {
   "name": "dsh-mimic",
-  "version": "0.3.5",
-  "description": "DSH provider-scoped Claude Code / Codex client identity with independent settings and atomic wire transformation",
+  "version": "0.3.6",
+  "description": "客户端模拟：为 DSH 供应商配置 Claude Code / Codex 客户端身份，独立设置并同步转换出站请求头与体",
   "type": "module",
   "license": "MIT",
   "main": "./dist/index.js",
@@ -62,10 +62,10 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/liuqihao166123/dsh-mimic.git"
+    "url": "https://github.com/SquareDance166123/dsh-mimic.git"
   },
   "bugs": {
-    "url": "https://github.com/liuqihao166123/dsh-mimic/issues"
+    "url": "https://github.com/SquareDance166123/dsh-mimic/issues"
   },
-  "homepage": "https://github.com/liuqihao166123/dsh-mimic#readme"
+  "homepage": "https://github.com/SquareDance166123/dsh-mimic#readme"
 }

@@ -1,4 +1,4 @@
-export declare const PANEL_TITLE = "\u4F9B\u5E94\u5546\u5BA2\u6237\u7AEF\u6A21\u62DF";
+export declare const PANEL_TITLE = "\u5BA2\u6237\u7AEF\u6A21\u62DF";
 export declare const SLOT_SERVICE_ID = "slots";
 export declare const SETTINGS_SLOT_ID = "settings.section";
 export declare const SIDEBAR_SLOT_ID = "sidebar.panellist";

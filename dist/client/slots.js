@@ -1,5 +1,5 @@
 import { PLUGIN_NAME } from '../types.js';
-export const PANEL_TITLE = '供应商客户端模拟';
+export const PANEL_TITLE = '客户端模拟';
 export const SLOT_SERVICE_ID = 'slots';
 export const SETTINGS_SLOT_ID = 'settings.section';
 export const SIDEBAR_SLOT_ID = 'sidebar.panellist';
