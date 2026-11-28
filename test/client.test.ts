@@ -447,3 +447,13 @@ test('concurrency cap round-trips through the draft and counts as a change', () 
   assert.throws(() => draftToRule({ ...form, concurrencyText: '2.5' }, profiles), DraftValidationError);
   assert.deepEqual(draftToRule({ ...form, concurrencyText: '0' }, profiles), { client: 'claude-code', profile: profiles[0].id });
 });
+
+test('concurrency reject mode round-trips through the draft', () => {
+  const base = claudeDraft();
+  assert.equal(base.concurrencyMode, 'queue');
+  const form = { ...base, concurrencyText: '2', concurrencyMode: 'reject' as const };
+  assert.deepEqual(draftToRule(form, profiles), { client: 'claude-code', profile: profiles[0].id, concurrency: 2, concurrencyMode: 'reject' });
+  assert.equal(isDraftDirty({ baseline: base, form: { ...base, concurrencyMode: 'reject' } }), true);
+  assert.equal(ruleToDraft({ client: 'codex', profile: profiles[1].id, concurrency: 3, concurrencyMode: 'reject' }, profiles).concurrencyMode, 'reject');
+  assert.equal(ruleToDraft({ client: 'codex', profile: profiles[1].id, concurrency: 3 }, profiles).concurrencyMode, 'queue');
+});

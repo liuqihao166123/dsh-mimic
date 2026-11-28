@@ -9,6 +9,21 @@ interface Gate {
   waiters: (() => void)[];
 }
 
+export type ConcurrencyMode = 'queue' | 'reject';
+
+/** Raised when a provider is at its cap and the rule is set to reject instead of queue. */
+export class ConcurrencyLimitError extends Error {
+  readonly code = 'CONCURRENCY_LIMIT';
+  readonly providerId: string;
+  readonly limit: number;
+  constructor(providerId: string, limit: number) {
+    super(`该供应商并发上限为 ${limit}，当前请求已满，请等当前请求结束后再试。`);
+    this.name = 'ConcurrencyLimitError';
+    this.providerId = providerId;
+    this.limit = limit;
+  }
+}
+
 export class ProviderLimiter {
   private readonly gates = new Map<string, Gate>();
 
@@ -30,10 +45,11 @@ export class ProviderLimiter {
     };
   }
 
-  async acquire(providerId: string, limit: number): Promise<() => void> {
+  async acquire(providerId: string, limit: number, mode: ConcurrencyMode = 'queue'): Promise<() => void> {
     if (!Number.isInteger(limit) || limit <= 0) return () => {};
     const gate = this.gate(providerId);
     if (gate.active < limit) { gate.active++; return this.releaser(gate); }
+    if (mode === 'reject') throw new ConcurrencyLimitError(providerId, limit);
     await new Promise<void>(resolve => gate.waiters.push(resolve));
     return this.releaser(gate);
   }
@@ -42,7 +58,7 @@ export class ProviderLimiter {
    * Wraps an async iterable so that the upstream stream is only opened after a slot is granted, and
    * the slot is returned on completion, error, or early consumer return.
    */
-  wrap<T>(providerId: string, limit: number, factory: () => AsyncIterable<T>): AsyncIterable<T> {
+  wrap<T>(providerId: string, limit: number, mode: ConcurrencyMode, factory: () => AsyncIterable<T>): AsyncIterable<T> {
     if (!Number.isInteger(limit) || limit <= 0) return factory();
     const self = this;
     return {
@@ -53,7 +69,7 @@ export class ProviderLimiter {
         return {
           async next(...args: [] | [unknown]): Promise<IteratorResult<T>> {
             if (!iterator) {
-              release = await self.acquire(providerId, limit);
+              release = await self.acquire(providerId, limit, mode);
               try { iterator = factory()[Symbol.asyncIterator](); }
               catch (error) { finish(); throw error; }
             }

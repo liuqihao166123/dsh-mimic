@@ -335,7 +335,7 @@ test('concurrency cap queues streams beyond the limit and admits them as earlier
     yield opened;
   })();
   const take = async (): Promise<number> => {
-    for await (const value of limiter.wrap('p', 2, factory)) return value;
+    for await (const value of limiter.wrap('p', 2, 'queue', factory)) return value;
     return 0;
   };
   const first = take();
@@ -352,7 +352,18 @@ test('concurrency cap queues streams beyond the limit and admits them as earlier
   await Promise.all([first, second, third]);
   assert.deepEqual(limiter.usage('p'), { active: 0, queued: 0 });
   // Unlimited (0) returns the factory iterable untouched, with no gate state.
-  const passthrough = limiter.wrap('q', 0, factory);
+  const passthrough = limiter.wrap('q', 0, 'queue', factory);
   assert.deepEqual(limiter.usage('q'), { active: 0, queued: 0 });
   assert.equal(typeof passthrough[Symbol.asyncIterator], 'function');
+});
+test('concurrency reject mode fails the extra stream immediately instead of queueing', async () => {
+  const limiter = new ProviderLimiter();
+  const first = await limiter.acquire('p', 1, 'queue');
+  await assert.rejects(() => limiter.acquire('p', 1, 'reject'), (error: unknown) => (error as { code?: string }).code === 'CONCURRENCY_LIMIT');
+  assert.deepEqual(limiter.usage('p'), { active: 1, queued: 0 });
+  first();
+  const second = await limiter.acquire('p', 1, 'reject');
+  assert.deepEqual(limiter.usage('p'), { active: 1, queued: 0 });
+  second();
+  assert.deepEqual(limiter.usage('p'), { active: 0, queued: 0 });
 });

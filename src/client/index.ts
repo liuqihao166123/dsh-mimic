@@ -164,9 +164,14 @@ export function ProviderClientPanel({ api: providedApi }: ProviderClientPanelPro
       min: 0, max: 64, step: 1, value: form.concurrencyText, placeholder: '0',
       onChange: (event: { currentTarget: { value: string } }) => patch({ concurrencyText: event.currentTarget.value }),
     }),
+    h('label', { className: 'pcs-field-label', htmlFor: fieldId + '-concurrency-mode' }, '超出上限时'),
+    h('select', {
+      id: fieldId + '-concurrency-mode', className: 'pcs-control', value: form.concurrencyMode,
+      onChange: (event: { currentTarget: { value: string } }) => patch({ concurrencyMode: event.currentTarget.value === 'reject' ? 'reject' : 'queue' }),
+    }, h('option', { value: 'queue' }, '排队等待（等前面的请求结束）'), h('option', { value: 'reject' }, '直接拒绝（超限即报错，不再创建）')),
     h('p', { className: 'pcs-help' }, concurrencyStat
       ? '当前并发 ' + concurrencyStat.active + ' / ' + concurrencyStat.limit + (concurrencyStat.queued ? '，排队 ' + concurrencyStat.queued : '')
-      : '限制该供应商同时在途的生成请求数；超出的请求排队等待，避免触发上游并发限制。')) : null;
+      : '限制该供应商同时在途的生成请求数（每个并行子代理各算一个）；超出后按上面的方式处理。')) : null;
 
   const editor = form && providerField && clientField ? h('article', { className: 'pcs-card', 'aria-labelledby': fieldId + '-editor' },
     h('div', { className: 'pcs-card-head' },

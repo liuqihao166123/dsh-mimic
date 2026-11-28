@@ -190,9 +190,12 @@ function ProviderClientPanel({ api: providedApi } = {}) {
         id: fieldId + '-concurrency', className: 'pcs-control pcs-number', type: 'number', inputMode: 'numeric',
         min: 0, max: 64, step: 1, value: form.concurrencyText, placeholder: '0',
         onChange: (event) => patch({ concurrencyText: event.currentTarget.value }),
-    }), h('p', { className: 'pcs-help' }, concurrencyStat
+    }), h('label', { className: 'pcs-field-label', htmlFor: fieldId + '-concurrency-mode' }, '超出上限时'), h('select', {
+        id: fieldId + '-concurrency-mode', className: 'pcs-control', value: form.concurrencyMode,
+        onChange: (event) => patch({ concurrencyMode: event.currentTarget.value === 'reject' ? 'reject' : 'queue' }),
+    }, h('option', { value: 'queue' }, '排队等待（等前面的请求结束）'), h('option', { value: 'reject' }, '直接拒绝（超限即报错，不再创建）')), h('p', { className: 'pcs-help' }, concurrencyStat
         ? '当前并发 ' + concurrencyStat.active + ' / ' + concurrencyStat.limit + (concurrencyStat.queued ? '，排队 ' + concurrencyStat.queued : '')
-        : '限制该供应商同时在途的生成请求数；超出的请求排队等待，避免触发上游并发限制。')) : null;
+        : '限制该供应商同时在途的生成请求数（每个并行子代理各算一个）；超出后按上面的方式处理。')) : null;
     const editor = form && providerField && clientField ? h('article', { className: 'pcs-card', 'aria-labelledby': fieldId + '-editor' }, h('div', { className: 'pcs-card-head' }, h('h3', { id: fieldId + '-editor' }, '模拟设置'), h(Badge, { draft: dirty, children: dirty ? '未保存' : '已生效' })), h('div', { className: 'pcs-card-body' }, h('fieldset', { className: 'pcs-fieldset', disabled: blocked }, providerField, clientField, concurrencyField)), h('div', { className: 'pcs-actions' }, h('span', { className: 'pcs-small pcs-muted' }, dirty ? '尚未生效' : savedRule && savedRule.client !== 'none' ? '正在生效' : '未启用模拟'), h('div', { className: 'pcs-action-buttons' }, button(busy === 'save' ? '保存中…' : '保存', save, { primary: true, disabled: !dirty || !selected || session.revisionStale })))) : null;
     const listener = snapshot ? h('details', { className: 'pcs-card pcs-listener', 'aria-labelledby': fieldId + '-listener' }, h('summary', { id: fieldId + '-listener' }, '出站请求监听', h('span', { className: 'pcs-small pcs-muted' }, '调试 · 脱敏')), h('div', { className: 'pcs-card-body' }, h('div', { className: 'pcs-listener-toolbar' }, h('button', { type: 'button', className: 'pcs-switch', role: 'switch', 'aria-label': '出站请求监听',
         'aria-checked': listenerEnabled, disabled: blocked || session.revisionStale || (!listenerEnabled && !transportActive),
@@ -341,6 +344,7 @@ function ruleToDraft(rule, profiles) {
         overridesText: JSON.stringify(overrides, null, 2),
         instructionsText,
         concurrencyText: rule?.concurrency ? String(rule.concurrency) : '',
+        concurrencyMode: rule?.concurrencyMode === 'reject' ? 'reject' : 'queue',
     };
 }
 function setDraftClient(draft, client, profiles) {
@@ -358,7 +362,7 @@ function stableValue(value) {
 function draftKey(draft) {
     const concurrency = draft.concurrencyText.trim() || '0';
     if (draft.client === 'none')
-        return JSON.stringify(['none', concurrency]);
+        return JSON.stringify(['none', concurrency, draft.concurrencyMode]);
     let overrides;
     try {
         overrides = stableValue(JSON.parse(draft.overridesText || '{}'));
@@ -367,7 +371,7 @@ function draftKey(draft) {
         overrides = ['invalid-json', draft.overridesText];
     }
     return JSON.stringify([draft.client, draft.profile.trim(), draft.restrictModels,
-        draft.restrictModels ? parseModelIds(draft.modelIdsText).sort() : [], overrides, draft.instructionsText, concurrency]);
+        draft.restrictModels ? parseModelIds(draft.modelIdsText).sort() : [], overrides, draft.instructionsText, concurrency, draft.concurrencyMode]);
 }
 function isDraftDirty(draft) { return draftKey(draft.form) !== draftKey(draft.baseline); }
 function parseOverrides(text, instructions) {
@@ -443,14 +447,18 @@ function parseConcurrency(text) {
 }
 function draftToRule(draft, profiles) {
     const concurrency = parseConcurrency(draft.concurrencyText);
+    const concurrencyMode = draft.concurrencyMode === 'reject' ? 'reject' : 'queue';
     if (draft.client === 'none')
-        return concurrency > 0 ? { client: 'none', concurrency } : { client: 'none' };
+        return concurrency > 0 ? { client: 'none', concurrency, ...(concurrencyMode === 'reject' ? { concurrencyMode } : {}) } : { client: 'none' };
     if (!profilesForClient(profiles, draft.client).some(profile => profile.id === draft.profile)) {
         throw new DraftValidationError('请选择与目标客户端对应的可用 profile。');
     }
     const rule = { client: draft.client, profile: draft.profile };
-    if (concurrency > 0)
+    if (concurrency > 0) {
         rule.concurrency = concurrency;
+        if (concurrencyMode === 'reject')
+            rule.concurrencyMode = concurrencyMode;
+    }
     if (draft.restrictModels) {
         const models = parseModelIds(draft.modelIdsText);
         if (!models.length)
@@ -487,6 +495,8 @@ function projectPanelState(state) {
             clean.modelIds = [...rule.modelIds];
         if (rule.concurrency !== undefined && rule.concurrency > 0)
             clean.concurrency = rule.concurrency;
+        if (clean.concurrency && rule.concurrencyMode === 'reject')
+            clean.concurrencyMode = 'reject';
         const overrides = visibleOverrides(rule.overrides);
         if (Object.keys(overrides).length)
             clean.overrides = overrides;
@@ -650,6 +660,7 @@ function validPanelState(value) {
         && (rule.profile === undefined || typeof rule.profile === 'string')
         && (rule.modelIds === undefined || stringList(rule.modelIds))
         && (rule.concurrency === undefined || (Number.isSafeInteger(rule.concurrency) && Number(rule.concurrency) >= 0 && Number(rule.concurrency) <= 64))
+        && (rule.concurrencyMode === undefined || ['queue', 'reject'].includes(String(rule.concurrencyMode)))
         && (rule.overrides === undefined || isObject(rule.overrides)))
         && Array.isArray(value.providers) && value.providers.every(provider => isObject(provider)
         && ['id', 'label', 'adapter'].every(key => typeof provider[key] === 'string')
@@ -931,7 +942,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.API_PATH = exports.SETTINGS_NS = exports.PLUGIN_VERSION = exports.PLUGIN_NAME = void 0;
 exports.PLUGIN_NAME = 'dsh-mimic';
 /** Build replaces this marker with package.json version; the test suite asserts they match. */
-exports.PLUGIN_VERSION = '0.3.0';
+exports.PLUGIN_VERSION = '0.3.1';
 exports.SETTINGS_NS = 'dsh-mimic';
 exports.API_PATH = '/dsh-mimic/api';
 /** RPC: state {}; save {providerId,rule,revision}; listener {enabled,revision}; logs {}; clear {}. */

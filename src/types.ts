@@ -17,6 +17,8 @@ export interface ProviderRule {
   overrides?: ProfileOverrides;
   /** Max in-flight generation requests for this supplier; 0 / undefined means unlimited. */
   concurrency?: number;
+  /** What to do when the cap is reached: queue and wait (default) or fail the new request at once. */
+  concurrencyMode?: 'queue' | 'reject';
 }
 export interface PluginConfig {
   schemaVersion: 1;

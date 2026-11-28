@@ -42,6 +42,12 @@ export function validateRule(value) {
         if (limit > 0)
             rule.concurrency = limit;
     }
+    if (value.concurrencyMode !== undefined) {
+        if (!['queue', 'reject'].includes(String(value.concurrencyMode)))
+            throw new RpcError('INVALID_CONCURRENCY_MODE', '并发超限处理应为 queue（排队）或 reject（直接拒绝）。');
+        if ((rule.concurrency ?? 0) > 0)
+            rule.concurrencyMode = value.concurrencyMode;
+    }
     if (value.baseUrl !== undefined) {
         if (!text(value.baseUrl, 4096))
             throw new RpcError('INVALID_BASE_URL', '连接地址格式无效。');
@@ -114,7 +120,7 @@ export function normalizeConfig(value, fallback = defaultConfig()) {
         if (activeProvider === undefined)
             activeProvider = id;
         else
-            cfg.providers[id] = rule.concurrency ? { client: 'none', concurrency: rule.concurrency } : { client: 'none' };
+            cfg.providers[id] = rule.concurrency ? { client: 'none', concurrency: rule.concurrency, ...(rule.concurrencyMode ? { concurrencyMode: rule.concurrencyMode } : {}) } : { client: 'none' };
     }
     if (object(value.listener)) {
         cfg.listener.enabled = value.listener.enabled === true;
@@ -217,7 +223,8 @@ export class ConfigStore {
                     if (id === providerId)
                         continue;
                     const keep = config.providers[id].concurrency;
-                    config.providers[id] = keep ? { client: 'none', concurrency: keep } : { client: 'none' };
+                    const keepMode = config.providers[id].concurrencyMode;
+                    config.providers[id] = keep ? { client: 'none', concurrency: keep, ...(keepMode ? { concurrencyMode: keepMode } : {}) } : { client: 'none' };
                 }
             }
         });

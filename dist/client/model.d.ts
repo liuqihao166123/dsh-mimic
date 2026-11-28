@@ -11,6 +11,7 @@ export interface RuleDraft {
     overridesText: string;
     instructionsText: string;
     concurrencyText: string;
+    concurrencyMode: 'queue' | 'reject';
 }
 export interface ProviderDraft {
     form: RuleDraft;

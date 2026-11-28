@@ -218,3 +218,11 @@ ext()）时才申请槽位，因此排队中的请求不占用上游连接；lim
 - 面板：3 并发上限 数字输入 + 实时 ctive / limit、排队数；顶部「当前模拟」胶囊追加 · 并发 N。
 - 观测：RuntimeState.concurrency 暴露 { providerId, limit, active, queued }[]（仅列出 concurrency > 0 的供应商）。
 - 测试：	est/host.test.ts 新增范围校验/重置保留、排队放行两个用例；	est/client.test.ts 新增 draft 往返用例。合计 186 个主套件用例 + 10 个 runtime 用例全部通过。
+
+## 0.3.1 — 并发超限处理可选「直接拒绝」
+
+- 新增 ProviderRule.concurrencyMode?: 'queue' | 'reject'（缺省 queue）。校验错误码 INVALID_CONCURRENCY_MODE。
+- src/host/limiter.ts：新增 ConcurrencyLimitError（code = 'CONCURRENCY_LIMIT'，message「该供应商并发上限为 N，当前请求已满，请等当前请求结束后再试。」）；cquire(providerId, limit, mode) 在 mode === 'reject' 且已满时立即抛错，不进入队列；wrap(providerId, limit, mode, factory) 同步透传。
+- 适用场景：会话里并行派生子代理时，每个子代理各占一个在途生成槽位；设为 reject 后，超过上限的子代理请求直接失败，而不是静默等待。
+- 面板：「3 并发上限」下新增「超出上限时」下拉（排队等待 / 直接拒绝）。
+- 测试：	est/host.test.ts 新增 reject 立即失败用例；	est/client.test.ts 新增 mode 往返用例。主套件 188 / runtime 10 全绿。

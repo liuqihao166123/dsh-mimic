@@ -82,6 +82,7 @@ export function ruleToDraft(rule, profiles) {
         overridesText: JSON.stringify(overrides, null, 2),
         instructionsText,
         concurrencyText: rule?.concurrency ? String(rule.concurrency) : '',
+        concurrencyMode: rule?.concurrencyMode === 'reject' ? 'reject' : 'queue',
     };
 }
 export function setDraftClient(draft, client, profiles) {
@@ -99,7 +100,7 @@ function stableValue(value) {
 function draftKey(draft) {
     const concurrency = draft.concurrencyText.trim() || '0';
     if (draft.client === 'none')
-        return JSON.stringify(['none', concurrency]);
+        return JSON.stringify(['none', concurrency, draft.concurrencyMode]);
     let overrides;
     try {
         overrides = stableValue(JSON.parse(draft.overridesText || '{}'));
@@ -108,7 +109,7 @@ function draftKey(draft) {
         overrides = ['invalid-json', draft.overridesText];
     }
     return JSON.stringify([draft.client, draft.profile.trim(), draft.restrictModels,
-        draft.restrictModels ? parseModelIds(draft.modelIdsText).sort() : [], overrides, draft.instructionsText, concurrency]);
+        draft.restrictModels ? parseModelIds(draft.modelIdsText).sort() : [], overrides, draft.instructionsText, concurrency, draft.concurrencyMode]);
 }
 export function isDraftDirty(draft) { return draftKey(draft.form) !== draftKey(draft.baseline); }
 export function parseOverrides(text, instructions) {
@@ -184,14 +185,18 @@ export function parseConcurrency(text) {
 }
 export function draftToRule(draft, profiles) {
     const concurrency = parseConcurrency(draft.concurrencyText);
+    const concurrencyMode = draft.concurrencyMode === 'reject' ? 'reject' : 'queue';
     if (draft.client === 'none')
-        return concurrency > 0 ? { client: 'none', concurrency } : { client: 'none' };
+        return concurrency > 0 ? { client: 'none', concurrency, ...(concurrencyMode === 'reject' ? { concurrencyMode } : {}) } : { client: 'none' };
     if (!profilesForClient(profiles, draft.client).some(profile => profile.id === draft.profile)) {
         throw new DraftValidationError('请选择与目标客户端对应的可用 profile。');
     }
     const rule = { client: draft.client, profile: draft.profile };
-    if (concurrency > 0)
+    if (concurrency > 0) {
         rule.concurrency = concurrency;
+        if (concurrencyMode === 'reject')
+            rule.concurrencyMode = concurrencyMode;
+    }
     if (draft.restrictModels) {
         const models = parseModelIds(draft.modelIdsText);
         if (!models.length)
@@ -228,6 +233,8 @@ export function projectPanelState(state) {
             clean.modelIds = [...rule.modelIds];
         if (rule.concurrency !== undefined && rule.concurrency > 0)
             clean.concurrency = rule.concurrency;
+        if (clean.concurrency && rule.concurrencyMode === 'reject')
+            clean.concurrencyMode = 'reject';
         const overrides = visibleOverrides(rule.overrides);
         if (Object.keys(overrides).length)
             clean.overrides = overrides;
@@ -391,6 +398,7 @@ function validPanelState(value) {
         && (rule.profile === undefined || typeof rule.profile === 'string')
         && (rule.modelIds === undefined || stringList(rule.modelIds))
         && (rule.concurrency === undefined || (Number.isSafeInteger(rule.concurrency) && Number(rule.concurrency) >= 0 && Number(rule.concurrency) <= 64))
+        && (rule.concurrencyMode === undefined || ['queue', 'reject'].includes(String(rule.concurrencyMode)))
         && (rule.overrides === undefined || isObject(rule.overrides)))
         && Array.isArray(value.providers) && value.providers.every(provider => isObject(provider)
         && ['id', 'label', 'adapter'].every(key => typeof provider[key] === 'string')

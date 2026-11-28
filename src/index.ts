@@ -58,8 +58,8 @@ export function apply(ctx: HostContext, options: Options = {}): void {
         const factory = (): AsyncIterable<unknown> => rule.client === 'none'
           ? lease.bypass(next)
           : lease.bind({ identity: { providerId: request.provider as string, modelId, sessionId: typeof request.sessionId === 'string' ? request.sessionId : randomUUID(), requestId: randomUUID() }, rule: structuredClone(rule), deviceId: config.identity.deviceId, accountId: config.identity.accountId, record: (result, context) => listener.record(result, context), onError: code => { detail = '最近一次请求变换错误：' + code; } }, next);
-        // A supplier-level cap queues generation streams instead of letting them burst upstream.
-        return limit > 0 ? limiter.wrap(request.provider, limit, factory) : factory();
+        // A supplier-level cap queues (or rejects) generation streams instead of letting them burst upstream.
+        return limit > 0 ? limiter.wrap(request.provider, limit, rule.concurrencyMode ?? 'queue', factory) : factory();
       }, { global: true });
       const stopSettings = child.on('settings/document-updated', (...args: unknown[]) => {
         if (args[0] !== namespace) return;

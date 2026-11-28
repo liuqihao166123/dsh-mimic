@@ -32,6 +32,10 @@ export function validateRule(value: unknown): ProviderRule {
     if (!Number.isInteger(limit) || limit < 0 || limit > 64) throw new RpcError('INVALID_CONCURRENCY', '并发上限应为 0-64 的整数（0 表示不限制）。');
     if (limit > 0) rule.concurrency = limit;
   }
+  if (value.concurrencyMode !== undefined) {
+    if (!['queue', 'reject'].includes(String(value.concurrencyMode))) throw new RpcError('INVALID_CONCURRENCY_MODE', '并发超限处理应为 queue（排队）或 reject（直接拒绝）。');
+    if ((rule.concurrency ?? 0) > 0) rule.concurrencyMode = value.concurrencyMode as 'queue' | 'reject';
+  }
   if (value.baseUrl !== undefined) {
     if (!text(value.baseUrl, 4096)) throw new RpcError('INVALID_BASE_URL', '连接地址格式无效。');
     let u: URL; try { u = new URL(value.baseUrl); } catch { throw new RpcError('INVALID_BASE_URL', '连接地址格式无效。'); }
@@ -82,7 +86,7 @@ export function normalizeConfig(value: unknown, fallback = defaultConfig()): Plu
   for (const [id, rule] of Object.entries(cfg.providers)) {
     if (rule.client === 'none') continue;
     if (activeProvider === undefined) activeProvider = id;
-    else cfg.providers[id] = rule.concurrency ? { client: 'none', concurrency: rule.concurrency } : { client: 'none' };
+    else cfg.providers[id] = rule.concurrency ? { client: 'none', concurrency: rule.concurrency, ...(rule.concurrencyMode ? { concurrencyMode: rule.concurrencyMode } : {}) } : { client: 'none' };
   }
   if (object(value.listener)) {
     cfg.listener.enabled = value.listener.enabled === true;
@@ -154,7 +158,8 @@ export class ConfigStore {
         for (const id of Object.keys(config.providers)) {
           if (id === providerId) continue;
           const keep = config.providers[id].concurrency;
-          config.providers[id] = keep ? { client: 'none', concurrency: keep } : { client: 'none' };
+          const keepMode = config.providers[id].concurrencyMode;
+          config.providers[id] = keep ? { client: 'none', concurrency: keep, ...(keepMode ? { concurrencyMode: keepMode } : {}) } : { client: 'none' };
         }
       }
     });

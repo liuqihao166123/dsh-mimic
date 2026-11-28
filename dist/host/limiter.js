@@ -1,3 +1,15 @@
+/** Raised when a provider is at its cap and the rule is set to reject instead of queue. */
+export class ConcurrencyLimitError extends Error {
+    code = 'CONCURRENCY_LIMIT';
+    providerId;
+    limit;
+    constructor(providerId, limit) {
+        super(`该供应商并发上限为 ${limit}，当前请求已满，请等当前请求结束后再试。`);
+        this.name = 'ConcurrencyLimitError';
+        this.providerId = providerId;
+        this.limit = limit;
+    }
+}
 export class ProviderLimiter {
     gates = new Map();
     gate(providerId) {
@@ -22,7 +34,7 @@ export class ProviderLimiter {
                 gate.active = Math.max(0, gate.active - 1);
         };
     }
-    async acquire(providerId, limit) {
+    async acquire(providerId, limit, mode = 'queue') {
         if (!Number.isInteger(limit) || limit <= 0)
             return () => { };
         const gate = this.gate(providerId);
@@ -30,6 +42,8 @@ export class ProviderLimiter {
             gate.active++;
             return this.releaser(gate);
         }
+        if (mode === 'reject')
+            throw new ConcurrencyLimitError(providerId, limit);
         await new Promise(resolve => gate.waiters.push(resolve));
         return this.releaser(gate);
     }
@@ -37,7 +51,7 @@ export class ProviderLimiter {
      * Wraps an async iterable so that the upstream stream is only opened after a slot is granted, and
      * the slot is returned on completion, error, or early consumer return.
      */
-    wrap(providerId, limit, factory) {
+    wrap(providerId, limit, mode, factory) {
         if (!Number.isInteger(limit) || limit <= 0)
             return factory();
         const self = this;
@@ -49,7 +63,7 @@ export class ProviderLimiter {
                 return {
                     async next(...args) {
                         if (!iterator) {
-                            release = await self.acquire(providerId, limit);
+                            release = await self.acquire(providerId, limit, mode);
                             try {
                                 iterator = factory()[Symbol.asyncIterator]();
                             }
