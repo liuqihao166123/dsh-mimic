@@ -589,4 +589,3 @@ export function extractUsage(text, protocol) {
     }
     return sample;
 }
-//# sourceMappingURL=usage.js.map

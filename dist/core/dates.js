@@ -13,4 +13,3 @@ export function normalizeSystemDateCarriers(value) {
         return "Today's date is " + match[1] + '-' + String(month).padStart(2, '0') + '-' + String(day).padStart(2, '0') + '.';
     }).join('');
 }
-//# sourceMappingURL=dates.js.map

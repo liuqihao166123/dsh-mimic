@@ -52,4 +52,3 @@ export function copyFields(source, target, fields) {
         if (source[key] !== undefined)
             target[key] = cloneJson(source[key]);
 }
-//# sourceMappingURL=json.js.map

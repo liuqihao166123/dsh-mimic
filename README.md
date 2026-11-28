@@ -106,10 +106,12 @@ src/core/                档案常量、日期归一化、工具映射、三协�
 src/host/                配置/RPC、供应商发现、传输隔离、SSE/JSON 回译、监听
 src/client/              侧边栏图标 + React 面板 + 纯状态模型（无宿主依赖）
 profiles/                版本档案与来源摘要
-scripts/build.mjs        TypeScript 编译 + 浏览器 ModuleLoader 单文件 bundle
+scripts/build.mjs        TypeScript 编译 + 最小宿主 ESM 依赖集 + 浏览器单文件 bundle
 cordis.patch.yml         可安装 bundle 的标准挂载配置
 test/                    契约 / 集成 / 响应回译 / 真实 Cordis 运行时测试
 ```
+
+仓库中的 `dist/` 用于 GitHub 直接安装，只保留宿主入口实际引用的 JavaScript 模块和 `dist/client.js` 浏览器 bundle。类型声明、Source Map 与客户端中间模块保留在本地 `build/`；每次构建会重新生成精简的 `dist/`，清除过期产物。源码、测试、锁文件、版本档案和第三方许可继续纳入版本控制，本地配置、调试记录及安装包由 `.gitignore` 排除。
 
 ## 测试
 
@@ -119,6 +121,8 @@ pnpm run test:runtime  # 真实提取的 Cordis/DSH LLM 运行时兼容套件（
 ```
 
 `test:runtime` 需要已提取的 DSH 运行目录，可用 `DSH_RUNTIME_MODULE_ROOT` 指定；它使用真实 Cordis/LLM 模块和本地响应，不发起真实上游模型调用。
+
+离线测试同时加载实际发布的宿主入口，检查运行依赖完整、浏览器 bundle 可执行，并确认 `dist/` 不含孤立模块、重复客户端产物、声明文件或 Source Map。
 
 ## 常见问题
 

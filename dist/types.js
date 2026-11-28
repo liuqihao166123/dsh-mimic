@@ -4,4 +4,3 @@ export const PLUGIN_VERSION = '0.4.2';
 export const SETTINGS_NS = 'dsh-mimic';
 export const API_PATH = '/dsh-mimic/api';
 /** RPC: state {}; save {providerId,rule,revision}; listener {enabled,revision}; logs {}; clear {}. */
-//# sourceMappingURL=types.js.map

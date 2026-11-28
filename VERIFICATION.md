@@ -90,7 +90,7 @@ createServer((req, res) => {
 
 ### 5.2 挂载插件
 
-用 `--patch` 覆盖层挂载本工程（`scripts/install-dev.sh` 有参考），或用 `pnpm run pack` 产出的 tarball 安装。
+用 `--patch` 覆盖层挂载本工程的 `cordis.patch.yml`，或按 README 的源码构建步骤运行 `pnpm run pack`，安装生成的 tarball。
 
 ### 5.3 配三个供应商
 

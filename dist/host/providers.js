@@ -47,4 +47,3 @@ export async function discoverProviders(llm, settings) {
     }));
     return rows.filter(row => !OFFICIAL_ADAPTER.test(row.adapter)).sort((a, b) => a.label.localeCompare(b.label, 'zh-CN'));
 }
-//# sourceMappingURL=providers.js.map

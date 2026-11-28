@@ -329,4 +329,3 @@ export class PrefixDiagnostics {
         return { enabled: this.enabled, maxEntries: this.maxEntries, maxSessions: this.maxSessions, keyScope: 'runtime', entries: this.entries.map(copy) };
     }
 }
-//# sourceMappingURL=diagnostics.js.map

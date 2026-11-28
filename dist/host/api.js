@@ -121,4 +121,3 @@ export function createApiHandler(controller) {
         }
     };
 }
-//# sourceMappingURL=api.js.map

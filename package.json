@@ -31,7 +31,7 @@
   "scripts": {
     "build": "node scripts/build.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "node scripts/build.mjs && node --test --test-isolation=none build/test/core.test.js build/test/client.test.js build/test/host.test.js build/test/response.test.js build/test/bundle.test.js build/test/usage.test.js build/test/metrics.test.js build/test/diagnostics.test.js build/test/cache-client.test.js",
+    "test": "node scripts/build.mjs && node --test --test-isolation=none build/test/core.test.js build/test/client.test.js build/test/host.test.js build/test/response.test.js build/test/bundle.test.js build/test/usage.test.js build/test/metrics.test.js build/test/diagnostics.test.js build/test/cache-client.test.js build/test/package.test.js",
     "test:runtime": "node scripts/build.mjs && node --test --test-isolation=none build/test/runtime.test.js",
     "pack": "node scripts/build.mjs && node -e \"require('node:fs').mkdirSync('release',{recursive:true})\" && npm pack --ignore-scripts --pack-destination ./release"
   },

@@ -4,8 +4,26 @@ build-response-check/
 release/
 evidence/
 .tmp/
+coverage/
+*.tsbuildinfo
 *.log
+*.trace
+*.har
+*.heapsnapshot
 *.bak
 *.bak-*
 .DS_Store
 Thumbs.db
+
+# Local credentials and private runtime configuration.
+.env
+.env.*
+!.env.example
+!.env.sample
+.npmrc
+.netrc
+.git-credentials
+*.pem
+*.key
+*.p12
+*.pfx

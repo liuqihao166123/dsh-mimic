@@ -231,4 +231,3 @@ export function installTransport() {
         } },
     };
 }
-//# sourceMappingURL=transport.js.map

@@ -114,4 +114,3 @@ export function toolResultOutput(block) {
         return block.content;
     return toResponsesContent(block.content ?? '', 'tool_result.content');
 }
-//# sourceMappingURL=content.js.map

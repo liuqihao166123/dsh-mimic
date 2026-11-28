@@ -883,4 +883,3 @@ export function bridgeResponse(response, result) {
         return response;
     return new Response(sse ? wrapSse(response, result) : wrapJson(response, result), { status: response.status, statusText: response.statusText, headers: cleanHeaders(response) });
 }
-//# sourceMappingURL=response.js.map

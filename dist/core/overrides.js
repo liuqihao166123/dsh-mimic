@@ -75,4 +75,3 @@ export function assertCanonicalExtraHeaders(canonical, value) {
             throw new ProtocolConversionError('INCONSISTENT_PROFILE_HEADER', 'extraHeader conflicts with the resolved structured profile: ' + name);
     }
 }
-//# sourceMappingURL=overrides.js.map

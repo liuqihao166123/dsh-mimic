@@ -64,4 +64,3 @@ export class RequestListener {
     list() { return structuredClone(this.entries); }
     clear() { this.entries.length = 0; }
 }
-//# sourceMappingURL=listener.js.map

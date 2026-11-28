@@ -119,4 +119,3 @@ export function resolveProfile(rule) {
             cache: { ...base.cache }, headers: { ...base.headers }, billing: { ...base.billing, sampleIndices: [...base.billing.sampleIndices] } };
     return { ...base, ...common, client: 'codex', originator: o.originator ?? base.originator, instructions: o.instructions ?? base.instructions };
 }
-//# sourceMappingURL=profiles.js.map

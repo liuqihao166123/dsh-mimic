@@ -230,4 +230,3 @@ export class ConfigStore {
         });
     }
 }
-//# sourceMappingURL=config.js.map

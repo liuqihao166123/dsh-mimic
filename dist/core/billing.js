@@ -22,4 +22,3 @@ export function constructClaudeBillingHeader(body, version, entrypoint, controls
     const suffix = claudeVersionSuffix(firstAnthropicUserText(body), version, controls);
     return 'x-anthropic-billing-header: cc_version=' + version + '.' + suffix + '; cc_entrypoint=' + entrypoint + '; cch=' + controls.initialCch + ';';
 }
-//# sourceMappingURL=billing.js.map

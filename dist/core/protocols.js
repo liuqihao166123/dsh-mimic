@@ -381,4 +381,3 @@ export function toResponses(body, source) {
     applyResponsesReasoning(body, output);
     return output;
 }
-//# sourceMappingURL=protocols.js.map
