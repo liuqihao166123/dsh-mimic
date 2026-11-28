@@ -154,12 +154,26 @@ export function ProviderClientPanel({ api: providedApi }: ProviderClientPanelPro
           h('span', { className: 'pcs-client-description' }, client.description))))),
     h('p', { className: 'pcs-help' }, '同一时间只模拟一个供应商：保存后，其他供应商会自动恢复为不模拟。')) : null;
 
+  const concurrencyStat = snapshot?.runtime.concurrency?.find(item => item.providerId === session.selectedProviderId);
+  const concurrencyField = form ? h('div', { className: 'pcs-field' },
+    h('label', { className: 'pcs-field-label', htmlFor: fieldId + '-concurrency' },
+      h('span', null, h('span', { className: 'pcs-field-step', 'aria-hidden': true }, '3'), '并发上限'),
+      h('span', { className: 'pcs-small pcs-muted' }, '0 = 不限制')),
+    h('input', {
+      id: fieldId + '-concurrency', className: 'pcs-control pcs-number', type: 'number', inputMode: 'numeric',
+      min: 0, max: 64, step: 1, value: form.concurrencyText, placeholder: '0',
+      onChange: (event: { currentTarget: { value: string } }) => patch({ concurrencyText: event.currentTarget.value }),
+    }),
+    h('p', { className: 'pcs-help' }, concurrencyStat
+      ? '当前并发 ' + concurrencyStat.active + ' / ' + concurrencyStat.limit + (concurrencyStat.queued ? '，排队 ' + concurrencyStat.queued : '')
+      : '限制该供应商同时在途的生成请求数；超出的请求排队等待，避免触发上游并发限制。')) : null;
+
   const editor = form && providerField && clientField ? h('article', { className: 'pcs-card', 'aria-labelledby': fieldId + '-editor' },
     h('div', { className: 'pcs-card-head' },
       h('h3', { id: fieldId + '-editor' }, '模拟设置'),
       h(Badge, { draft: dirty, children: dirty ? '未保存' : '已生效' })),
     h('div', { className: 'pcs-card-body' },
-      h('fieldset', { className: 'pcs-fieldset', disabled: blocked }, providerField, clientField)),
+      h('fieldset', { className: 'pcs-fieldset', disabled: blocked }, providerField, clientField, concurrencyField)),
     h('div', { className: 'pcs-actions' },
       h('span', { className: 'pcs-small pcs-muted' }, dirty ? '尚未生效' : savedRule && savedRule.client !== 'none' ? '正在生效' : '未启用模拟'),
       h('div', { className: 'pcs-action-buttons' },
@@ -208,7 +222,7 @@ export function ProviderClientPanel({ api: providedApi }: ProviderClientPanelPro
           type: 'button', key: provider.id, className: 'pcs-current-chip', disabled: blocked,
           'aria-pressed': provider.id === session.selectedProviderId,
           onClick: () => chooseProvider(provider.id),
-        }, h('strong', null, provider.label), h('span', null, clientLabel(rule.client) + ' · ' + (rule.profile ?? '默认 profile')))))
+        }, h('strong', null, provider.label), h('span', null, clientLabel(rule.client) + ' · ' + (rule.profile ?? '默认 profile') + (rule.concurrency ? ' · 并发 ' + rule.concurrency : '')))))
         : h('span', { className: 'pcs-current-idle-text' }, '未启用（不模拟任何客户端）')) : null,
     session.revisionStale ? h('div', { className: 'pcs-banner pcs-banner-warning', role: 'alert' },
       h('div', null, h('strong', null, '配置已更新'), h('p', null, '请点刷新后再保存。'))) : null,

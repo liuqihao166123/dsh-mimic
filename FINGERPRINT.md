@@ -202,3 +202,10 @@ export default { name, inject, apply };   // 装载器取 default，inject 必�
 ## 面板与版本号（0.1.3 起）
 
 面板不展示 profile / 模型覆盖 / 高级覆盖等字段，客户端指纹一律使用该 client 的内置 profile（`profilesForClient` 的第一项）。版本号来自 `PLUGIN_VERSION`，构建时由 package.json version 注入，展示在标题胶囊与页脚；升级版本只需改 package.json。
+
+## 3.6 并发上限（0.3.0）
+
+- 常量/字段集中在 src/types.ts（ProviderRule.concurrency、ConcurrencyStat、RuntimeState.concurrency），默认值语义固定为 **0 = 不限制**，上限 64。
+- 闸门实现 src/host/limiter.ts：按 providerId 的 active 计数 + FIFO waiter 队列；槽位在流首次拉取时申请、在 done/throw/return 释放并直接移交队首，保证 active ≤ limit 且无饥饿。
+- 修改并发相关行为时必须同步：src/host/config.ts 的 alidateRule 范围校验、
+ormalizeConfig / saveProvider 的重置保留逻辑、src/index.ts 的 concurrencyStats() 与 limiter.wrap() 调用点、客户端 parseConcurrency 与 alidConcurrencyStats。

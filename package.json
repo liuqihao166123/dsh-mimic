@@ -1,6 +1,6 @@
 {
   "name": "dsh-mimic",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "DSH provider-scoped Claude Code / Codex client identity with independent settings and atomic wire transformation",
   "type": "module",
   "license": "MIT",

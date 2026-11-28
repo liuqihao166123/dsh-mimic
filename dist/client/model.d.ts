@@ -10,6 +10,7 @@ export interface RuleDraft {
     modelIdsText: string;
     overridesText: string;
     instructionsText: string;
+    concurrencyText: string;
 }
 export interface ProviderDraft {
     form: RuleDraft;
@@ -66,6 +67,7 @@ export declare function ruleToDraft(rule: ProviderRule | undefined, profiles: Pr
 export declare function setDraftClient(draft: RuleDraft, client: ClientKind, profiles: ProfileInfo[]): RuleDraft;
 export declare function isDraftDirty(draft: ProviderDraft): boolean;
 export declare function parseOverrides(text: string, instructions: string): ProfileOverrides | undefined;
+export declare function parseConcurrency(text: string): number;
 export declare function draftToRule(draft: RuleDraft, profiles: ProfileInfo[]): ProviderRule;
 export declare function draftProblem(draft: RuleDraft | undefined, profiles: ProfileInfo[]): string;
 export declare function emptyEditorSession(): EditorSession;

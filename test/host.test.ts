@@ -8,6 +8,7 @@ import { PanelController, createApiHandler } from '../src/host/api.js';
 import { discoverProviders } from '../src/host/providers.js';
 import { RequestListener } from '../src/host/listener.js';
 import { installTransport, detectProtocol } from '../src/host/transport.js';
+import { ProviderLimiter } from '../src/host/limiter.js';
 import type { TransportLease, TransportScope } from '../src/host/transport.js';
 import type { LlmDirectory, SettingsHost, SettingsDescriptor } from '../src/host/contracts.js';
 import { API_PATH, SETTINGS_NS } from '../src/types.js';
@@ -297,4 +298,61 @@ test('loading a config with several simulating suppliers keeps only the first', 
   const snap = store.snapshot();
   assert.equal(snap.providers.a.client, 'codex');
   assert.deepEqual(snap.providers.b, { client: 'none' });
+});
+
+test('concurrency cap validates the 0-64 range and survives supplier resets', async () => {
+  assert.deepEqual(validateRule({ client: 'codex', concurrency: 4 }), { client: 'codex', concurrency: 4 });
+  assert.deepEqual(validateRule({ client: 'none', concurrency: 0 }), { client: 'none' });
+  assert.equal(validateRule({ client: 'codex', concurrency: 64 }).concurrency, 64);
+  for (const bad of [65, -1, 2.5, 'many']) {
+    assert.throws(() => validateRule({ client: 'codex', concurrency: bad }), (e: unknown) => e instanceof RpcError && e.code === 'INVALID_CONCURRENCY');
+  }
+  const cfg = defaultConfig();
+  cfg.providers.a = { client: 'claude-code', profile: 'claude-code/2.1.63', concurrency: 2 };
+  cfg.providers.b = { client: 'none', concurrency: 3 };
+  const { store } = setup(cfg);
+  await store.saveProvider('b', { client: 'codex', profile: 'codex-cli/0.107.0', concurrency: 5 }, 0);
+  const snap = store.snapshot();
+  assert.deepEqual(snap.providers.a, { client: 'none', concurrency: 2 });
+  assert.equal(snap.providers.b.client, 'codex');
+  assert.equal(snap.providers.b.concurrency, 5);
+  const loaded = new ConfigStore(new FakeSettings((() => {
+    const loadedCfg = defaultConfig();
+    loadedCfg.providers.a = { client: 'codex', profile: 'codex-cli/0.107.0' };
+    loadedCfg.providers.b = { client: 'claude-code', profile: 'claude-code/2.1.63', concurrency: 6 };
+    return loadedCfg;
+  })(), SETTINGS_NS), undefined, SETTINGS_NS).snapshot();
+  assert.deepEqual(loaded.providers.b, { client: 'none', concurrency: 6 });
+});
+
+test('concurrency cap queues streams beyond the limit and admits them as earlier ones finish', async () => {
+  const limiter = new ProviderLimiter();
+  const gates: (() => void)[] = [];
+  let opened = 0;
+  const factory = () => (async function* () {
+    opened++;
+    await new Promise<void>(resolve => gates.push(resolve));
+    yield opened;
+  })();
+  const take = async (): Promise<number> => {
+    for await (const value of limiter.wrap('p', 2, factory)) return value;
+    return 0;
+  };
+  const first = take();
+  const second = take();
+  const third = take();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(opened, 2, 'only the first two streams may open');
+  assert.deepEqual(limiter.usage('p'), { active: 2, queued: 1 });
+  gates.shift()!();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(opened, 3, 'the queued stream opens once a slot frees');
+  assert.deepEqual(limiter.usage('p'), { active: 2, queued: 0 });
+  while (gates.length) gates.shift()!();
+  await Promise.all([first, second, third]);
+  assert.deepEqual(limiter.usage('p'), { active: 0, queued: 0 });
+  // Unlimited (0) returns the factory iterable untouched, with no gate state.
+  const passthrough = limiter.wrap('q', 0, factory);
+  assert.deepEqual(limiter.usage('q'), { active: 0, queued: 0 });
+  assert.equal(typeof passthrough[Symbol.asyncIterator], 'function');
 });

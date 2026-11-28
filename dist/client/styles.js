@@ -74,6 +74,7 @@ export const PANEL_CSS = String.raw `.pcs-root {
 .pcs-control { width: 100%; min-width: 0; color: var(--pcs-fg); background: var(--pcs-layer); border: 1px solid var(--pcs-border); border-radius: 8px; padding: 9px 10px; outline: 0; }
 .pcs-control:focus { border-color: var(--pcs-brand); }
 .pcs-control:disabled { opacity: .65; }
+.pcs-number { max-width: 150px; }
 .pcs-code { font-family: ui-monospace, SFMono-Regular, Consolas, monospace !important; font-size: 11px !important; }
 .pcs-textarea { display: block; resize: vertical; line-height: 1.65; min-height: 85px; tab-size: 2; }
 .pcs-instructions { min-height: 130px; }

@@ -27,6 +27,11 @@ export function validateRule(value: unknown): ProviderRule {
     if (!Array.isArray(value.modelIds) || value.modelIds.length > 500 || value.modelIds.some(x => !text(x, 512) || !x.length)) throw new RpcError('INVALID_MODELS', '模型限制应为模型标识数组。');
     rule.modelIds = [...new Set(value.modelIds as string[])];
   }
+  if (value.concurrency !== undefined) {
+    const limit = Number(value.concurrency);
+    if (!Number.isInteger(limit) || limit < 0 || limit > 64) throw new RpcError('INVALID_CONCURRENCY', '并发上限应为 0-64 的整数（0 表示不限制）。');
+    if (limit > 0) rule.concurrency = limit;
+  }
   if (value.baseUrl !== undefined) {
     if (!text(value.baseUrl, 4096)) throw new RpcError('INVALID_BASE_URL', '连接地址格式无效。');
     let u: URL; try { u = new URL(value.baseUrl); } catch { throw new RpcError('INVALID_BASE_URL', '连接地址格式无效。'); }
@@ -76,7 +81,8 @@ export function normalizeConfig(value: unknown, fallback = defaultConfig()): Plu
   let activeProvider: string | undefined;
   for (const [id, rule] of Object.entries(cfg.providers)) {
     if (rule.client === 'none') continue;
-    if (activeProvider === undefined) activeProvider = id; else cfg.providers[id] = { client: 'none' };
+    if (activeProvider === undefined) activeProvider = id;
+    else cfg.providers[id] = rule.concurrency ? { client: 'none', concurrency: rule.concurrency } : { client: 'none' };
   }
   if (object(value.listener)) {
     cfg.listener.enabled = value.listener.enabled === true;
@@ -146,7 +152,9 @@ export class ConfigStore {
       // Saving a simulating rule resets every other supplier to plain passthrough.
       if (rule.client !== 'none') {
         for (const id of Object.keys(config.providers)) {
-          if (id !== providerId) config.providers[id] = { client: 'none' };
+          if (id === providerId) continue;
+          const keep = config.providers[id].concurrency;
+          config.providers[id] = keep ? { client: 'none', concurrency: keep } : { client: 'none' };
         }
       }
     });

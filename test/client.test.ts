@@ -435,3 +435,15 @@ test('panel version constant stays in sync with package.json', () => {
   assert.match(PLUGIN_VERSION, /^\d+\.\d+\.\d+$/);
   assert.equal(PLUGIN_VERSION, pkg.version);
 });
+test('concurrency cap round-trips through the draft and counts as a change', () => {
+  const baseline = claudeDraft();
+  assert.equal(baseline.concurrencyText, '');
+  const form = { ...baseline, concurrencyText: '3' };
+  assert.equal(isDraftDirty({ baseline, form }), true);
+  assert.deepEqual(draftToRule(form, profiles), { client: 'claude-code', profile: profiles[0].id, concurrency: 3 });
+  assert.deepEqual(draftToRule({ ...form, client: 'none' }, profiles), { client: 'none', concurrency: 3 });
+  assert.equal(ruleToDraft({ client: 'codex', profile: profiles[1].id, concurrency: 5 }, profiles).concurrencyText, '5');
+  assert.throws(() => draftToRule({ ...form, concurrencyText: '65' }, profiles), DraftValidationError);
+  assert.throws(() => draftToRule({ ...form, concurrencyText: '2.5' }, profiles), DraftValidationError);
+  assert.deepEqual(draftToRule({ ...form, concurrencyText: '0' }, profiles), { client: 'claude-code', profile: profiles[0].id });
+});

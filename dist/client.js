@@ -185,7 +185,15 @@ function ProviderClientPanel({ api: providedApi } = {}) {
         type: 'radio', name: fieldId + '-client', value: client.id, checked: form.client === client.id,
         onChange: () => patch((0, model_js_1.setDraftClient)(form, client.id, snapshot?.profiles ?? [])),
     }), h('span', null, h('span', { className: 'pcs-client-name' }, client.label), h('span', { className: 'pcs-client-description' }, client.description))))), h('p', { className: 'pcs-help' }, '同一时间只模拟一个供应商：保存后，其他供应商会自动恢复为不模拟。')) : null;
-    const editor = form && providerField && clientField ? h('article', { className: 'pcs-card', 'aria-labelledby': fieldId + '-editor' }, h('div', { className: 'pcs-card-head' }, h('h3', { id: fieldId + '-editor' }, '模拟设置'), h(Badge, { draft: dirty, children: dirty ? '未保存' : '已生效' })), h('div', { className: 'pcs-card-body' }, h('fieldset', { className: 'pcs-fieldset', disabled: blocked }, providerField, clientField)), h('div', { className: 'pcs-actions' }, h('span', { className: 'pcs-small pcs-muted' }, dirty ? '尚未生效' : savedRule && savedRule.client !== 'none' ? '正在生效' : '未启用模拟'), h('div', { className: 'pcs-action-buttons' }, button(busy === 'save' ? '保存中…' : '保存', save, { primary: true, disabled: !dirty || !selected || session.revisionStale })))) : null;
+    const concurrencyStat = snapshot?.runtime.concurrency?.find(item => item.providerId === session.selectedProviderId);
+    const concurrencyField = form ? h('div', { className: 'pcs-field' }, h('label', { className: 'pcs-field-label', htmlFor: fieldId + '-concurrency' }, h('span', null, h('span', { className: 'pcs-field-step', 'aria-hidden': true }, '3'), '并发上限'), h('span', { className: 'pcs-small pcs-muted' }, '0 = 不限制')), h('input', {
+        id: fieldId + '-concurrency', className: 'pcs-control pcs-number', type: 'number', inputMode: 'numeric',
+        min: 0, max: 64, step: 1, value: form.concurrencyText, placeholder: '0',
+        onChange: (event) => patch({ concurrencyText: event.currentTarget.value }),
+    }), h('p', { className: 'pcs-help' }, concurrencyStat
+        ? '当前并发 ' + concurrencyStat.active + ' / ' + concurrencyStat.limit + (concurrencyStat.queued ? '，排队 ' + concurrencyStat.queued : '')
+        : '限制该供应商同时在途的生成请求数；超出的请求排队等待，避免触发上游并发限制。')) : null;
+    const editor = form && providerField && clientField ? h('article', { className: 'pcs-card', 'aria-labelledby': fieldId + '-editor' }, h('div', { className: 'pcs-card-head' }, h('h3', { id: fieldId + '-editor' }, '模拟设置'), h(Badge, { draft: dirty, children: dirty ? '未保存' : '已生效' })), h('div', { className: 'pcs-card-body' }, h('fieldset', { className: 'pcs-fieldset', disabled: blocked }, providerField, clientField, concurrencyField)), h('div', { className: 'pcs-actions' }, h('span', { className: 'pcs-small pcs-muted' }, dirty ? '尚未生效' : savedRule && savedRule.client !== 'none' ? '正在生效' : '未启用模拟'), h('div', { className: 'pcs-action-buttons' }, button(busy === 'save' ? '保存中…' : '保存', save, { primary: true, disabled: !dirty || !selected || session.revisionStale })))) : null;
     const listener = snapshot ? h('details', { className: 'pcs-card pcs-listener', 'aria-labelledby': fieldId + '-listener' }, h('summary', { id: fieldId + '-listener' }, '出站请求监听', h('span', { className: 'pcs-small pcs-muted' }, '调试 · 脱敏')), h('div', { className: 'pcs-card-body' }, h('div', { className: 'pcs-listener-toolbar' }, h('button', { type: 'button', className: 'pcs-switch', role: 'switch', 'aria-label': '出站请求监听',
         'aria-checked': listenerEnabled, disabled: blocked || session.revisionStale || (!listenerEnabled && !transportActive),
         onClick: () => { void run('listener', { action: 'listener', enabled: !listenerEnabled, revision: snapshot.config.revision }); } }, h('span', { className: 'pcs-switch-track', 'aria-hidden': true }, h('span', { className: 'pcs-switch-knob' })), busy === 'listener' ? '更新中…' : listenerEnabled ? '监听中' : '已关闭'), h('span', { className: 'pcs-small pcs-muted' }, snapshot.entries.length + ' 条记录 · 上限 ' + snapshot.config.listener.maxEntries), h('div', { className: 'pcs-action-buttons' }, button(busy === 'logs' ? '读取中…' : '读取记录', () => { void run('logs', { action: 'logs' }); }), button(busy === 'clear' ? '清空中…' : '清空', () => { void run('clear', { action: 'clear' }); }, { disabled: !snapshot.entries.length, className: 'pcs-button-danger' }))), !transportActive ? h('p', { className: 'pcs-help' }, '出站接入尚未就绪：' + snapshot.runtime.detail) : null, snapshot.entries.length ? h('div', { className: 'pcs-log-list' }, ...snapshot.entries.slice().reverse().map(entry => h('details', { key: entry.id, className: 'pcs-log' }, h('summary', null, (snapshot.providers.find(provider => provider.id === entry.providerId)?.label ?? '供应商') + ' · ' + entry.modelId + ' · ' + entryTime(entry.time)), h('div', { className: 'pcs-log-content' }, h('div', { className: 'pcs-log-meta' }, h('span', null, clientLabel(entry.client) + ' · ' + entry.profile), h('span', null, entry.protocol + ' → ' + entry.targetProtocol), entry.status !== undefined ? h('span', null, 'HTTP ' + entry.status) : null), h('p', { className: 'pcs-help pcs-code' }, entry.url), entry.error ? h('p', { className: 'pcs-validation' }, entry.error) : null, h('div', { className: 'pcs-log-label' }, '请求头 · 已脱敏'), h('pre', null, JSON.stringify(entry.headers, null, 2)), h('div', { className: 'pcs-log-label' }, '请求体 · 结构与指纹摘要'), h('pre', null, JSON.stringify(entry.body, null, 2))))))
@@ -196,7 +204,7 @@ function ProviderClientPanel({ api: providedApi } = {}) {
             type: 'button', key: provider.id, className: 'pcs-current-chip', disabled: blocked,
             'aria-pressed': provider.id === session.selectedProviderId,
             onClick: () => chooseProvider(provider.id),
-        }, h('strong', null, provider.label), h('span', null, clientLabel(rule.client) + ' · ' + (rule.profile ?? '默认 profile')))))
+        }, h('strong', null, provider.label), h('span', null, clientLabel(rule.client) + ' · ' + (rule.profile ?? '默认 profile') + (rule.concurrency ? ' · 并发 ' + rule.concurrency : '')))))
         : h('span', { className: 'pcs-current-idle-text' }, '未启用（不模拟任何客户端）')) : null, session.revisionStale ? h('div', { className: 'pcs-banner pcs-banner-warning', role: 'alert' }, h('div', null, h('strong', null, '配置已更新'), h('p', null, '请点刷新后再保存。'))) : null, error ? h('div', { className: 'pcs-banner pcs-banner-error', role: 'alert' }, error) : null, notice ? h('div', { className: 'pcs-banner pcs-banner-success', role: 'status' }, notice) : null, !snapshot ? h('div', { className: 'pcs-empty' }, h('strong', null, busy === 'refresh' ? '正在读取' : '尚未读取状态'), busy === 'refresh' ? '正在读取当前 DSH 供应商配置。' : '点右上角刷新重试。') : null, snapshot && !providers.length && !form ? h('div', { className: 'pcs-empty' }, h('strong', null, '尚无已配置供应商'), '先在 DSH 供应商设置里配置模型连接，再刷新此面板。') : null, editor, listener, h('p', { className: 'pcs-footer' }, 'v' + types_js_1.PLUGIN_VERSION + ' · 已连接 ' + providers.length + ' 个供应商 · 出站接入 ' + (transportActive ? '已就绪' : '未就绪')
         + (lastRead ? ' · 最近读取 ' + lastRead : '')));
 }
@@ -230,6 +238,7 @@ exports.ruleToDraft = ruleToDraft;
 exports.setDraftClient = setDraftClient;
 exports.isDraftDirty = isDraftDirty;
 exports.parseOverrides = parseOverrides;
+exports.parseConcurrency = parseConcurrency;
 exports.draftToRule = draftToRule;
 exports.draftProblem = draftProblem;
 exports.emptyEditorSession = emptyEditorSession;
@@ -331,6 +340,7 @@ function ruleToDraft(rule, profiles) {
         modelIdsText: rule?.modelIds?.join('\n') ?? '',
         overridesText: JSON.stringify(overrides, null, 2),
         instructionsText,
+        concurrencyText: rule?.concurrency ? String(rule.concurrency) : '',
     };
 }
 function setDraftClient(draft, client, profiles) {
@@ -346,8 +356,9 @@ function stableValue(value) {
     return value;
 }
 function draftKey(draft) {
+    const concurrency = draft.concurrencyText.trim() || '0';
     if (draft.client === 'none')
-        return 'none';
+        return JSON.stringify(['none', concurrency]);
     let overrides;
     try {
         overrides = stableValue(JSON.parse(draft.overridesText || '{}'));
@@ -356,7 +367,7 @@ function draftKey(draft) {
         overrides = ['invalid-json', draft.overridesText];
     }
     return JSON.stringify([draft.client, draft.profile.trim(), draft.restrictModels,
-        draft.restrictModels ? parseModelIds(draft.modelIdsText).sort() : [], overrides, draft.instructionsText]);
+        draft.restrictModels ? parseModelIds(draft.modelIdsText).sort() : [], overrides, draft.instructionsText, concurrency]);
 }
 function isDraftDirty(draft) { return draftKey(draft.form) !== draftKey(draft.baseline); }
 function parseOverrides(text, instructions) {
@@ -419,13 +430,27 @@ function parseOverrides(text, instructions) {
     }
     return Object.keys(result).length ? result : undefined;
 }
+function parseConcurrency(text) {
+    const value = text.trim();
+    if (!value)
+        return 0;
+    if (!/^\d{1,2}$/.test(value))
+        throw new DraftValidationError('并发上限应为 0-64 的整数（0 表示不限制）。');
+    const limit = Number(value);
+    if (limit > 64)
+        throw new DraftValidationError('并发上限应为 0-64 的整数（0 表示不限制）。');
+    return limit;
+}
 function draftToRule(draft, profiles) {
+    const concurrency = parseConcurrency(draft.concurrencyText);
     if (draft.client === 'none')
-        return { client: 'none' };
+        return concurrency > 0 ? { client: 'none', concurrency } : { client: 'none' };
     if (!profilesForClient(profiles, draft.client).some(profile => profile.id === draft.profile)) {
         throw new DraftValidationError('请选择与目标客户端对应的可用 profile。');
     }
     const rule = { client: draft.client, profile: draft.profile };
+    if (concurrency > 0)
+        rule.concurrency = concurrency;
     if (draft.restrictModels) {
         const models = parseModelIds(draft.modelIdsText);
         if (!models.length)
@@ -460,6 +485,8 @@ function projectPanelState(state) {
             clean.profile = rule.profile;
         if (rule.modelIds !== undefined)
             clean.modelIds = [...rule.modelIds];
+        if (rule.concurrency !== undefined && rule.concurrency > 0)
+            clean.concurrency = rule.concurrency;
         const overrides = visibleOverrides(rule.overrides);
         if (Object.keys(overrides).length)
             clean.overrides = overrides;
@@ -470,7 +497,8 @@ function projectPanelState(state) {
             modelIds: [...provider.modelIds], configured: provider.configured, ...(provider.protocol ? { protocol: provider.protocol } : {}) })),
         config: { schemaVersion: 1, revision: state.config.revision, providers: rules,
             listener: { enabled: state.config.listener.enabled, maxEntries: state.config.listener.maxEntries } },
-        runtime: { transport: state.runtime.transport, registrations: state.runtime.registrations, detail: redactText(state.runtime.detail) },
+        runtime: { transport: state.runtime.transport, registrations: state.runtime.registrations, detail: redactText(state.runtime.detail),
+            ...(state.runtime.concurrency ? { concurrency: state.runtime.concurrency.map(item => ({ providerId: item.providerId, limit: item.limit, active: item.active, queued: item.queued })) } : {}) },
         profiles: state.profiles.map(profile => ({ id: profile.id, client: profile.client, version: profile.version,
             label: profile.label, evidence: redactText(profile.evidence) })),
         entries: state.entries.map(redactListenerEntry),
@@ -599,6 +627,14 @@ function validListenerEntry(value) {
         && isObject(value.body) && (value.status === undefined || typeof value.status === 'number')
         && (value.error === undefined || typeof value.error === 'string');
 }
+function validConcurrencyStats(value) {
+    if (value === undefined)
+        return true;
+    return Array.isArray(value) && value.every(item => isObject(item)
+        && typeof item.providerId === 'string'
+        && Number.isSafeInteger(item.limit) && Number(item.limit) >= 0 && Number(item.limit) <= 64
+        && Number.isSafeInteger(item.active) && Number.isSafeInteger(item.queued));
+}
 function validPanelState(value) {
     if (!isObject(value) || !isObject(value.config) || !isObject(value.runtime))
         return false;
@@ -607,11 +643,13 @@ function validPanelState(value) {
         || !isObject(config.providers) || !isObject(config.listener) || typeof config.listener.enabled !== 'boolean'
         || !Number.isSafeInteger(config.listener.maxEntries) || Number(config.listener.maxEntries) < 0
         || !['active', 'waiting', 'unsupported'].includes(String(value.runtime.transport))
-        || typeof value.runtime.detail !== 'string' || !Number.isSafeInteger(value.runtime.registrations))
+        || typeof value.runtime.detail !== 'string' || !Number.isSafeInteger(value.runtime.registrations)
+        || !validConcurrencyStats(value.runtime.concurrency))
         return false;
     return Object.values(config.providers).every(rule => isObject(rule) && ['none', 'claude-code', 'codex'].includes(String(rule.client))
         && (rule.profile === undefined || typeof rule.profile === 'string')
         && (rule.modelIds === undefined || stringList(rule.modelIds))
+        && (rule.concurrency === undefined || (Number.isSafeInteger(rule.concurrency) && Number(rule.concurrency) >= 0 && Number(rule.concurrency) <= 64))
         && (rule.overrides === undefined || isObject(rule.overrides)))
         && Array.isArray(value.providers) && value.providers.every(provider => isObject(provider)
         && ['id', 'label', 'adapter'].every(key => typeof provider[key] === 'string')
@@ -802,6 +840,7 @@ exports.PANEL_CSS = String.raw `.pcs-root {
 .pcs-control { width: 100%; min-width: 0; color: var(--pcs-fg); background: var(--pcs-layer); border: 1px solid var(--pcs-border); border-radius: 8px; padding: 9px 10px; outline: 0; }
 .pcs-control:focus { border-color: var(--pcs-brand); }
 .pcs-control:disabled { opacity: .65; }
+.pcs-number { max-width: 150px; }
 .pcs-code { font-family: ui-monospace, SFMono-Regular, Consolas, monospace !important; font-size: 11px !important; }
 .pcs-textarea { display: block; resize: vertical; line-height: 1.65; min-height: 85px; tab-size: 2; }
 .pcs-instructions { min-height: 130px; }
@@ -892,7 +931,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.API_PATH = exports.SETTINGS_NS = exports.PLUGIN_VERSION = exports.PLUGIN_NAME = void 0;
 exports.PLUGIN_NAME = 'dsh-mimic';
 /** Build replaces this marker with package.json version; the test suite asserts they match. */
-exports.PLUGIN_VERSION = '0.2.0';
+exports.PLUGIN_VERSION = '0.3.0';
 exports.SETTINGS_NS = 'dsh-mimic';
 exports.API_PATH = '/dsh-mimic/api';
 /** RPC: state {}; save {providerId,rule,revision}; listener {enabled,revision}; logs {}; clear {}. */

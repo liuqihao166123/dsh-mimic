@@ -207,3 +207,14 @@ createServer((req, res) => {
 - 单供应商不变量：`src/host/config.ts` 在 `saveProvider` 保存非 `none` 规则时把其它供应商全部重置为 `{ client: 'none' }`；`normalizeConfig` 加载时只保留第一个非 `none` 供应商，其余归零 —— 因此任何时刻最多一个供应商在模拟。
 - 保存即生效：没有草稿概念，面板只区分「未保存 / 已生效」；点「保存」直接写 settings 文档并立即作用于 `llm/stream`。测试：`test/host.test.ts` 的 `saving a simulating rule resets every other supplier to passthrough`、`loading a config with several simulating suppliers keeps only the first`。
 - 版本号单一来源：`src/types.ts` 的 `PLUGIN_VERSION = '__PLUGIN_VERSION__'` 由 `scripts/build.mjs` 用 package.json 的 version 替换（build/src 与 dist 两处都替换）；`test/client.test.ts` 断言其与 package.json 一致。
+
+## 0.3.0 — 按供应商并发上限（2026-11-28）
+
+- 配置项：ProviderRule.concurrency?: number（0 / 缺省 = 不限制，范围 0–64）。校验错误码 INVALID_CONCURRENCY（"并发上限应为 0-64 的整数（0 表示不限制）。"）。
+- 生效点：宿主 llm/stream 瀑布处理器，按 equest.provider 计数；src/host/limiter.ts 的 ProviderLimiter.wrap() 在流首次被拉取（首个 
+ext()）时才申请槽位，因此排队中的请求不占用上游连接；limit <= 0 时直接 actory()，零开销、不建立任何状态。
+- 释放：迭代器 done / throw / return 均释放槽位；释放时把槽位直接移交队首 waiter（active 不会超过 limit）。
+- 单供应商不变量兼容：被重置为 { client: 'none' } 的其他供应商会保留自己的 concurrency。
+- 面板：3 并发上限 数字输入 + 实时 ctive / limit、排队数；顶部「当前模拟」胶囊追加 · 并发 N。
+- 观测：RuntimeState.concurrency 暴露 { providerId, limit, active, queued }[]（仅列出 concurrency > 0 的供应商）。
+- 测试：	est/host.test.ts 新增范围校验/重置保留、排队放行两个用例；	est/client.test.ts 新增 draft 往返用例。合计 186 个主套件用例 + 10 个 runtime 用例全部通过。

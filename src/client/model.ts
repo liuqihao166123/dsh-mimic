@@ -12,6 +12,7 @@ export interface RuleDraft {
   modelIdsText: string;
   overridesText: string;
   instructionsText: string;
+  concurrencyText: string;
 }
 export interface ProviderDraft { form: RuleDraft; baseline: RuleDraft }
 export interface EditorSession {
@@ -104,6 +105,7 @@ export function ruleToDraft(rule: ProviderRule | undefined, profiles: ProfileInf
     modelIdsText: rule?.modelIds?.join('\n') ?? '',
     overridesText: JSON.stringify(overrides, null, 2),
     instructionsText,
+    concurrencyText: rule?.concurrency ? String(rule.concurrency) : '',
   };
 }
 export function setDraftClient(draft: RuleDraft, client: ClientKind, profiles: ProfileInfo[]): RuleDraft {
@@ -116,12 +118,13 @@ function stableValue(value: unknown): unknown {
   return value;
 }
 function draftKey(draft: RuleDraft): string {
-  if (draft.client === 'none') return 'none';
+  const concurrency = draft.concurrencyText.trim() || '0';
+  if (draft.client === 'none') return JSON.stringify(['none', concurrency]);
   let overrides: unknown;
   try { overrides = stableValue(JSON.parse(draft.overridesText || '{}')); }
   catch { overrides = ['invalid-json', draft.overridesText]; }
   return JSON.stringify([draft.client, draft.profile.trim(), draft.restrictModels,
-    draft.restrictModels ? parseModelIds(draft.modelIdsText).sort() : [], overrides, draft.instructionsText]);
+    draft.restrictModels ? parseModelIds(draft.modelIdsText).sort() : [], overrides, draft.instructionsText, concurrency]);
 }
 export function isDraftDirty(draft: ProviderDraft): boolean { return draftKey(draft.form) !== draftKey(draft.baseline); }
 
@@ -173,12 +176,22 @@ export function parseOverrides(text: string, instructions: string): ProfileOverr
   }
   return Object.keys(result).length ? result : undefined;
 }
+export function parseConcurrency(text: string): number {
+  const value = text.trim();
+  if (!value) return 0;
+  if (!/^\d{1,2}$/.test(value)) throw new DraftValidationError('并发上限应为 0-64 的整数（0 表示不限制）。');
+  const limit = Number(value);
+  if (limit > 64) throw new DraftValidationError('并发上限应为 0-64 的整数（0 表示不限制）。');
+  return limit;
+}
 export function draftToRule(draft: RuleDraft, profiles: ProfileInfo[]): ProviderRule {
-  if (draft.client === 'none') return { client: 'none' };
+  const concurrency = parseConcurrency(draft.concurrencyText);
+  if (draft.client === 'none') return concurrency > 0 ? { client: 'none', concurrency } : { client: 'none' };
   if (!profilesForClient(profiles, draft.client).some(profile => profile.id === draft.profile)) {
     throw new DraftValidationError('请选择与目标客户端对应的可用 profile。');
   }
   const rule: ProviderRule = { client: draft.client, profile: draft.profile };
+  if (concurrency > 0) rule.concurrency = concurrency;
   if (draft.restrictModels) {
     const models = parseModelIds(draft.modelIdsText);
     if (!models.length) throw new DraftValidationError('至少选择一个模型，或关闭模型限制。');
@@ -203,6 +216,7 @@ export function projectPanelState(state: PanelState | PublicPanelState): PublicP
     const clean: ProviderRule = { client: rule.client };
     if (rule.profile !== undefined) clean.profile = rule.profile;
     if (rule.modelIds !== undefined) clean.modelIds = [...rule.modelIds];
+    if (rule.concurrency !== undefined && rule.concurrency > 0) clean.concurrency = rule.concurrency;
     const overrides = visibleOverrides(rule.overrides);
     if (Object.keys(overrides).length) clean.overrides = overrides;
     return [id, clean];
@@ -212,7 +226,8 @@ export function projectPanelState(state: PanelState | PublicPanelState): PublicP
       modelIds: [...provider.modelIds], configured: provider.configured, ...(provider.protocol ? { protocol: provider.protocol } : {}) })),
     config: { schemaVersion: 1, revision: state.config.revision, providers: rules,
       listener: { enabled: state.config.listener.enabled, maxEntries: state.config.listener.maxEntries } },
-    runtime: { transport: state.runtime.transport, registrations: state.runtime.registrations, detail: redactText(state.runtime.detail) },
+    runtime: { transport: state.runtime.transport, registrations: state.runtime.registrations, detail: redactText(state.runtime.detail),
+      ...(state.runtime.concurrency ? { concurrency: state.runtime.concurrency.map(item => ({ providerId: item.providerId, limit: item.limit, active: item.active, queued: item.queued })) } : {}) },
     profiles: state.profiles.map(profile => ({ id: profile.id, client: profile.client, version: profile.version,
       label: profile.label, evidence: redactText(profile.evidence) })),
     entries: state.entries.map(redactListenerEntry),
@@ -328,6 +343,13 @@ function validListenerEntry(value: unknown): value is ListenerEntry {
     && isObject(value.body) && (value.status === undefined || typeof value.status === 'number')
     && (value.error === undefined || typeof value.error === 'string');
 }
+function validConcurrencyStats(value: unknown): boolean {
+  if (value === undefined) return true;
+  return Array.isArray(value) && value.every(item => isObject(item)
+    && typeof item.providerId === 'string'
+    && Number.isSafeInteger(item.limit) && Number(item.limit) >= 0 && Number(item.limit) <= 64
+    && Number.isSafeInteger(item.active) && Number.isSafeInteger(item.queued));
+}
 function validPanelState(value: unknown): value is PanelState {
   if (!isObject(value) || !isObject(value.config) || !isObject(value.runtime)) return false;
   const config = value.config;
@@ -335,10 +357,12 @@ function validPanelState(value: unknown): value is PanelState {
     || !isObject(config.providers) || !isObject(config.listener) || typeof config.listener.enabled !== 'boolean'
     || !Number.isSafeInteger(config.listener.maxEntries) || Number(config.listener.maxEntries) < 0
     || !['active', 'waiting', 'unsupported'].includes(String(value.runtime.transport))
-    || typeof value.runtime.detail !== 'string' || !Number.isSafeInteger(value.runtime.registrations)) return false;
+    || typeof value.runtime.detail !== 'string' || !Number.isSafeInteger(value.runtime.registrations)
+    || !validConcurrencyStats(value.runtime.concurrency)) return false;
   return Object.values(config.providers).every(rule => isObject(rule) && ['none', 'claude-code', 'codex'].includes(String(rule.client))
     && (rule.profile === undefined || typeof rule.profile === 'string')
     && (rule.modelIds === undefined || stringList(rule.modelIds))
+    && (rule.concurrency === undefined || (Number.isSafeInteger(rule.concurrency) && Number(rule.concurrency) >= 0 && Number(rule.concurrency) <= 64))
     && (rule.overrides === undefined || isObject(rule.overrides)))
     && Array.isArray(value.providers) && value.providers.every(provider => isObject(provider)
       && ['id', 'label', 'adapter'].every(key => typeof provider[key] === 'string')

@@ -15,6 +15,8 @@ export interface ProviderRule {
   modelIds?: string[];
   baseUrl?: string;
   overrides?: ProfileOverrides;
+  /** Max in-flight generation requests for this supplier; 0 / undefined means unlimited. */
+  concurrency?: number;
 }
 export interface PluginConfig {
   schemaVersion: 1;
@@ -57,10 +59,12 @@ export interface ListenerEntry {
   headers: Record<string, string>;
   body: JsonObject; status?: number; error?: string;
 }
+export interface ConcurrencyStat { providerId: string; limit: number; active: number; queued: number }
 export interface RuntimeState {
   transport: 'active' | 'waiting' | 'unsupported';
   detail: string;
   registrations: number;
+  concurrency?: ConcurrencyStat[];
 }
 export interface PanelState {
   providers: ProviderInfo[];
